@@ -202,12 +202,10 @@
 
   //voiceTest
   const demoSpeech = {
-    get(lang) {
-      return this[lang] || (
-        this[lang] = ajaxGet(config.serviceUrl + "/read-aloud/get-demo-speech-text/" + lang)
-          .then(JSON.parse)
-          .catch(() => ({text: "Movies, oh my gosh, I just absolutely love them. They're like time machines taking you to different worlds."}))
-      )
+    get() {
+      return Promise.resolve({
+        text: "Movies, oh my gosh, I just absolutely love them. They're like time machines taking you to different worlds."
+      })
     }
   }
   const voiceTestSubject = new rxjs.Subject()

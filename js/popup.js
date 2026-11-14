@@ -426,34 +426,6 @@ function refreshSize() {
 }
 
 function checkAnnouncements() {
-  var now = new Date().getTime();
-  getSettings(["announcement"])
-    .then(function(settings) {
-      var ann = settings.announcement;
-      if (ann && ann.expire > now)
-        return ann;
-      else
-        return ajaxGet(config.serviceUrl + "/read-aloud/announcement")
-          .then(JSON.parse)
-          .then(function(result) {
-            result.expire = now + 6*3600*1000;
-            if (ann && result.id == ann.id) {
-              result.lastShown = ann.lastShown;
-              result.disabled = ann.disabled;
-            }
-            updateSettings({announcement: result});
-            return result;
-          })
-    })
-    .then(function(ann) {
-      if (ann.text && !ann.disabled) {
-        if (!ann.lastShown || now-ann.lastShown > ann.period*60*1000) {
-          showAnnouncement(ann);
-          ann.lastShown = now;
-          updateSettings({announcement: ann});
-        }
-      }
-    })
 }
 
 function showAnnouncement(ann) {
