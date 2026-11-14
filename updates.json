@@ -33,6 +33,10 @@
         {
           "version": "2.25.8",
           "update_link": "https://github.com/lo3chan/read-aloud-gemini/releases/download/v2.25.8/read-aloud-gemini@local.xpi"
+        },
+        {
+          "version": "2.25.9",
+          "update_link": "https://github.com/lo3chan/read-aloud-gemini/releases/download/v2.25.9/read-aloud-gemini@local.xpi"
         }
       ]
     }
