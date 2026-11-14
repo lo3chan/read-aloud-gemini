@@ -1,249 +1,264 @@
-
 $(function() {
-  getSettings(["awsCreds", "gcpCreds", "ibmCreds", "azureCreds"])
-    .then(function(items) {
-      if (items.awsCreds) {
-        $("#aws-access-key-id").val(obfuscate(items.awsCreds.accessKeyId));
-        $("#aws-secret-access-key").val(obfuscate(items.awsCreds.secretAccessKey));
-      }
-      if (items.gcpCreds) {
-        $("#gcp-api-key").val(obfuscate(items.gcpCreds.apiKey));
-        $("#gcp-enable-studio").prop('checked', items.gcpCreds.enableStudio);
-      }
-      if (items.ibmCreds) {
-        $("#ibm-api-key").val(obfuscate(items.ibmCreds.apiKey));
-        $("#ibm-url").val(obfuscate(items.ibmCreds.url));
-      }
-      if (items.azureCreds) {
-        $("#azure-region").val(items.azureCreds.region)
-        $("#azure-key").val(obfuscate(items.azureCreds.key))
-      }
-    })
-  $(".status").hide();
-  $("#aws-save-button").click(awsSave);
-  $("#gcp-save-button").click(gcpSave);
-  $("#ibm-save-button").click(ibmSave);
-  $("#azure-save-button").click(azureSave)
-})
+  populateTestVoices();
+  loadConfig();
+  loadTelemetry();
 
-function obfuscate(key) {
-  return key.replace(/./g, function(m, i) {
-    return i < key.length-5 ? "*" : m;
-  })
-}
+  observeSetting("geminiTelemetry").subscribe(() => loadTelemetry());
+  observeSetting("gcpToken").subscribe(token => updatePortalStatus(token));
 
+  $("#gemini-backend").change(updateBackendUi);
 
-function awsSave() {
-  $(".status").hide();
-  var accessKeyId = $("#aws-access-key-id").val().trim();
-  var secretAccessKey = $("#aws-secret-access-key").val().trim();
-  if (accessKeyId && secretAccessKey) {
-    $("#aws-progress").show();
-    testAws(accessKeyId, secretAccessKey)
-      .then(function() {
-        $("#aws-progress").hide();
-        updateSettings({awsCreds: {accessKeyId: accessKeyId, secretAccessKey: secretAccessKey}});
-        $("#aws-success").text("Amazon Polly voices are enabled.").show();
-        $("#aws-access-key-id").val(obfuscate(accessKeyId));
-        $("#aws-secret-access-key").val(obfuscate(secretAccessKey));
-      },
-      function(err) {
-        $("#aws-progress").hide();
-        $("#aws-error").text("Test failed: " + err.message).show();
-      })
-  }
-  else if (!accessKeyId && !secretAccessKey) {
-    clearSettings(["awsCreds"])
-      .then(function() {
-        $("#aws-success").text("Amazon Polly voices are disabled.").show();
-      })
-  }
-  else {
-    $("#aws-error").text("Missing required fields.").show();
-  }
-}
-
-function testAws(accessKeyId, secretAccessKey) {
-      var polly = new AWS.Polly({
-        region: "us-east-1",
-        accessKeyId: accessKeyId,
-        secretAccessKey: secretAccessKey
-      })
-      return polly.describeVoices().promise();
-}
-
-
-function gcpSave() {
-  $(".status").hide();
-  var apiKey = $("#gcp-api-key").val().trim();
-  var enableStudio = $("#gcp-enable-studio").is(':checked');
-  if (apiKey) {
-    $("#gcp-progress").show();
-    testGcp(apiKey)
-      .then(function() {
-        $("#gcp-progress").hide();
-        updateSettings({gcpCreds: {apiKey: apiKey, enableStudio: enableStudio}});
-        if (enableStudio) {
-          $("#gcp-success").text("Google Wavenet & Studio voices are enabled.").show();
+  $("#portal-auth-btn").click(function() {
+    $(".status").hide();
+    brapi.permissions.request(config.wavenetPerms)
+      .then(async function(granted) {
+        if (granted) {
+          await bgPageInvoke("authWavenet");
+          showSuccess("Opened Cloud TTS portal. Click 'Speak It' there to capture your token.");
         } else {
-          $("#gcp-success").text("Google Wavenet voices are enabled.").show();
+          showError("Permission denied for Cloud TTS portal authorization.");
         }
-        $("#gcp-api-key").val(obfuscate(apiKey));
-      },
-      function(err) {
-        $("#gcp-progress").hide();
-        $("#gcp-error").text("Test failed: " + err.message).show();
       })
+      .catch(function(err) {
+        showError("Portal authorization failed: " + err.message);
+      });
+  });
+
+  $("#toggle-key-btn").click(function() {
+    const input = $("#gemini-api-key");
+    const isPwd = input.attr("type") === "password";
+    input.attr("type", isPwd ? "text" : "password");
+    $(this).text(isPwd ? "Hide" : "Show");
+  });
+
+  $(".model-preset").click(function() {
+    $("#gemini-model").val($(this).data("model"));
+  });
+
+  $("#gemini-save-btn").click(saveConfig);
+  $("#gemini-test-btn").click(testConfig);
+  $("#gemini-clear-cache-btn").click(function() {
+    geminiTtsEngine.clearCache();
+    showSuccess("In-memory audio cache cleared.");
+  });
+  $("#gemini-reset-btn").click(resetDefaults);
+
+  $("#telemetry-filter").change(loadTelemetry);
+  $("#telemetry-refresh-btn").click(loadTelemetry);
+  $("#telemetry-copy-btn").click(copyDiagnosticsJson);
+  $("#telemetry-clear-btn").click(async function() {
+    await geminiTtsEngine.clearTelemetry();
+    loadTelemetry();
+  });
+});
+
+function populateTestVoices() {
+  const select = $("#test-voice-select");
+  select.empty();
+  for (const voice of geminiTtsEngine.prebuiltVoices) {
+    $("<option>").val(voice).text(voice).appendTo(select);
   }
-  else {
-    clearSettings(["gcpCreds"])
-      .then(function() {
-        $("#gcp-success").text("Google Wavenet voices are disabled.").show();
-      })
+  select.val("Achernar");
+}
+
+function applyConfigToForm(raw) {
+  const defaults = geminiTtsEngine.defaultConfig;
+  const cfg = Object.assign({}, defaults, raw || {});
+  $("#gemini-backend").val(cfg.backend || defaults.backend);
+  $("#gemini-api-key").val(cfg.apiKey || "");
+  $("#gemini-model").val(cfg.model || defaults.model);
+  $("#gemini-lang").val(cfg.languageCode || defaults.languageCode);
+  $("#gemini-encoding").val(cfg.audioEncoding || defaults.audioEncoding);
+  $("#gemini-default-prompt").val(cfg.prompt != null ? cfg.prompt : defaults.prompt);
+  $("#gemini-chunk-size").val(cfg.chunkSize ?? defaults.chunkSize);
+  updateBackendUi();
+
+  const badge = $("#active-backend-badge");
+  if (cfg.backend === "portal") {
+    badge.removeClass("badge-secondary").addClass("badge-primary").text("Cloud Portal Proxy");
+  } else if (cfg.apiKey) {
+    badge.removeClass("badge-secondary").addClass("badge-primary")
+      .text(cfg.backend === "cloud-tts" ? "Cloud TTS v1beta1" : "Gemini API Free Tier");
+  } else {
+    badge.removeClass("badge-primary").addClass("badge-secondary").text("Not configured");
   }
 }
 
-function testGcp(apiKey) {
-      return ajaxGet("https://texttospeech.googleapis.com/v1beta1/voices?key=" + apiKey);
+function updateBackendUi() {
+  const isPortal = $("#gemini-backend").val() === "portal";
+  $("#api-key-group").toggle(!isPortal);
+  $("#portal-auth-group").toggle(isPortal);
 }
 
+function updatePortalStatus(token) {
+  const el = $("#portal-token-status");
+  if (token) {
+    el.removeClass("text-muted text-danger").addClass("text-success")
+      .text("Authorized (" + token.slice(0, 8) + "...)");
+  } else {
+    el.removeClass("text-success").addClass("text-muted")
+      .text("Not authorized yet — click Authorize Portal");
+  }
+}
 
-function ibmSave() {
+async function loadConfig() {
+  const {geminiCreds} = await getSettings(["geminiCreds"]);
+  applyConfigToForm(geminiCreds);
+}
+
+function readFormConfig() {
+  return {
+    backend: $("#gemini-backend").val(),
+    apiKey: $("#gemini-api-key").val().trim(),
+    model: $("#gemini-model").val().trim() || geminiTtsEngine.defaultConfig.model,
+    languageCode: $("#gemini-lang").val().trim() || "en-gb",
+    audioEncoding: $("#gemini-encoding").val() || "MP3",
+    prompt: $("#gemini-default-prompt").val(),
+    chunkSize: Number($("#gemini-chunk-size").val()) || 750
+  };
+}
+
+async function saveConfig() {
   $(".status").hide();
-  var apiKey = $("#ibm-api-key").val().trim();
-  var url = $("#ibm-url").val().trim();
-  if (apiKey && url) {
-    $("#ibm-progress").show();
-    testIbm(apiKey, url)
-      .then(function() {
-        $("#ibm-progress").hide();
-        updateSettings({ibmCreds: {apiKey: apiKey, url: url}});
-        $("#ibm-success").text("IBM Watson voices are enabled.").show();
-        $("#ibm-api-key").val(obfuscate(apiKey));
-        $("#ibm-url").val(obfuscate(url));
-      },
-      function(err) {
-        $("#ibm-progress").hide();
-        $("#ibm-error").text("Test failed: " + err.message).show();
-      })
-  }
-  else if (!apiKey && !url) {
-    clearSettings(["ibmCreds"])
-      .then(function() {
-        $("#ibm-success").text("IBM Watson voices are disabled.").show();
-      })
-  }
-  else {
-    $("#ibm-error").text("Missing required fields.").show();
+  try {
+    const geminiCreds = readFormConfig();
+    if (geminiCreds.backend !== "portal" && !geminiCreds.apiKey) {
+      await clearSettings(["geminiCreds"]);
+      applyConfigToForm(null);
+      showSuccess("Gemini TTS disabled (API key cleared).");
+      return;
+    }
+    await updateSettings({geminiCreds});
+    applyConfigToForm(geminiCreds);
+    showSuccess("Gemini TTS settings saved.");
+  } catch (err) {
+    showError(err.message);
   }
 }
 
-function testIbm(apiKey, url) {
-  return brapi.permissions.request({origins: [url + "/*"]})
-    .then(function(granted) {
-      if (!granted) throw new Error("Permission not granted");
-    })
-    .then(function() {
-      return ibmWatsonTtsEngine.fetchVoices(apiKey, url);
-    })
-}
+async function testConfig() {
+  $(".status").hide();
+  $("#gemini-progress").show();
+  try {
+    const geminiCreds = readFormConfig();
+    const sampleText = $("#gemini-test-text").val().trim();
+    const voiceName = $("#test-voice-select").val() || "Achernar";
+    const result = await geminiTtsEngine.test(geminiCreds, sampleText, voiceName);
+    await updateSettings({geminiCreds});
+    applyConfigToForm(geminiCreds);
 
+    const player = document.getElementById("test-audio-player");
+    player.src = result.url;
+    player.style.display = "block";
+    player.play().catch(() => {});
 
-async function azureSave() {
-  $(".status").hide()
-  const region = $("#azure-region").val().trim()
-  const key = $("#azure-key").val().trim()
-  if (region && key) {
-    $("#azure-progress").show()
-    try {
-      await testAzure(region, key)
-      await updateSettings({azureCreds: {region, key}})
-      $("#azure-success").text("Azure voices are enabled.").show()
-      $("#azure-key").val(obfuscate(key))
-    }
-    catch (err) {
-      $("#azure-error").text("Test failed: " + err.message).show()
-    }
-    finally {
-      $("#azure-progress").hide()
-    }
-  }
-  else if (!region && !key) {
-    await clearSettings(["azureCreds"])
-    $("#azure-success").text("IBM Watson voices are disabled.").show()
-  }
-  else {
-    $("#azure-error").text("Missing required fields.").show()
+    $("#gemini-progress").hide();
+    showSuccess(`Test succeeded (${result.durationMs}ms, ${formatBytes(result.audioBytes)}, ${result.mimeType}). Settings saved.`);
+    loadTelemetry();
+  } catch (err) {
+    $("#gemini-progress").hide();
+    showError("Test failed: " + err.message);
+    loadTelemetry();
   }
 }
 
-async function testAzure(region, key) {
-  await azureTtsEngine.fetchVoices(region, key)
+async function resetDefaults() {
+  $(".status").hide();
+  const {geminiCreds} = await getSettings(["geminiCreds"]);
+  const next = Object.assign({}, geminiTtsEngine.defaultConfig, {
+    apiKey: geminiCreds && geminiCreds.apiKey ? geminiCreds.apiKey : ""
+  });
+  applyConfigToForm(next);
+  showSuccess("Form reset to defaults. Click Save Settings to persist.");
 }
 
+async function loadTelemetry() {
+  const entries = await geminiTtsEngine.getTelemetry();
+  const filter = $("#telemetry-filter").val() || "all";
 
+  const total = entries.length;
+  const networkCalls = entries.filter(e => e.status === "ok" || e.status === "error");
+  const successes = entries.filter(e => e.status === "ok");
+  const cacheHits = entries.filter(e => e.status === "cache_hit");
+  const avgLatency = successes.length
+    ? Math.round(successes.reduce((sum, e) => sum + (e.durationMs || 0), 0) / successes.length) + " ms"
+    : "-";
+  const successRate = networkCalls.length
+    ? Math.round((successes.length / networkCalls.length) * 100) + "%"
+    : "-";
 
-//OpenAI
-$(function() {
-  const creds$ = observeSetting("openaiCreds")
-  const editMode$ = new rxjs.BehaviorSubject(false)
-  const status$ = new rxjs.BehaviorSubject({type: "IDLE"})
+  $("#stat-total").text(total);
+  $("#stat-success").text(successRate);
+  $("#stat-latency").text(avgLatency);
+  $("#stat-cache").text(cacheHits.length);
 
-  rxjs.combineLatest(creds$, editMode$).subscribe(([creds, editMode]) => {
-    $(".openai .view-new").toggle(creds == null && !editMode)
-    $(".openai .view-exist").toggle(creds != null && !editMode)
-    $(".openai .view-edit").toggle(editMode)
-  })
+  const filtered = filter === "all" ? entries : entries.filter(e => e.status === filter);
+  const tbody = $("#telemetry-tbody");
+  tbody.empty();
 
-  creds$.subscribe(creds => {
-    const endpointUrl = creds && creds.url || openaiTtsEngine.defaultEndpointUrl
-    const apiKey = creds && creds.apiKey || ""
-    const voiceList = creds && creds.voiceList || openaiTtsEngine.defaultVoiceList
-    $(".openai .endpoint-url").text(endpointUrl)
-    $(".openai .api-key").text(apiKey && (apiKey.slice(0,13) + "*****" + apiKey.slice(-5)))
-    $(".openai .voice-list").text(voiceList.map(x => x.voice).join(", "))
-    $(".openai .txt-endpoint-url").val(endpointUrl)
-    $(".openai .txt-api-key").val(apiKey)
-    $(".openai .txt-voice-list").val(JSON.stringify(voiceList, null, 2))
-  })
+  if (!filtered.length) {
+    $("<tr><td colspan='7' class='text-center text-muted'>No telemetry events recorded yet.</td></tr>").appendTo(tbody);
+    return;
+  }
 
-  status$.subscribe(status => {
-    $(".openai .status.progress").toggle(status.type == "PROGRESS")
-    $(".openai .status.success").toggle(status.type == "SUCCESS")
-    $(".openai .status.error").toggle(status.type == "ERROR")
-      .text(status.type == "ERROR" ? status.error.message : "")
-  })
+  for (const entry of filtered) {
+    const badgeClass = entry.status === "ok"
+      ? "badge-success"
+      : entry.status === "cache_hit"
+        ? "badge-info"
+        : "badge-danger";
+    const timeStr = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : "-";
+    const details = entry.error
+      ? `<span class="text-danger">${escapeHtml(entry.error)}</span>`
+      : `${escapeHtml(entry.textPreview || "")}${entry.textLength > 80 ? "..." : ""} (${entry.textLength || 0} chars)`;
 
-  //actions
-  $(".openai .btn-add").click(() => {
-    status$.next({type: "IDLE"})
-    editMode$.next(true)
-  })
-  $(".openai .btn-edit").click(() => {
-    status$.next({type: "IDLE"})
-    editMode$.next(true)
-  })
-  $(".openai .btn-delete").click(() => {
-    clearSettings(["openaiCreds"])
-    editMode$.next(false)
-  })
-  $(".openai .btn-save").click(async () => {
-    try {
-      const openaiCreds = {
-        url: $(".openai .txt-endpoint-url").val(),
-        apiKey: $(".openai .txt-api-key").val(),
-        voiceList: JSON.parse($(".openai .txt-voice-list").val())
-      }
-      status$.next({type: "PROGRESS"})
-      await openaiTtsEngine.test(openaiCreds)
-      await updateSettings({openaiCreds})
-      editMode$.next(false)
-      status$.next({type: "IDLE"})
-    } catch (err) {
-      status$.next({type: "ERROR", error: err})
-    }
-  })
-  $(".openai .btn-cancel").click(() => {
-    editMode$.next(false)
-  })
-})
+    const tr = $("<tr>");
+    $("<td>").text(timeStr).appendTo(tr);
+    $("<td>").html(`<span class="badge ${badgeClass}">${escapeHtml(entry.status)}</span>`).appendTo(tr);
+    $("<td>").text(entry.backend || "-").appendTo(tr);
+    $("<td>").text(`${entry.voice || "-"} / ${entry.model || "-"}`).appendTo(tr);
+    $("<td>").text(entry.durationMs != null ? `${entry.durationMs}ms` : "-").appendTo(tr);
+    $("<td>").text(entry.audioBytes ? formatBytes(entry.audioBytes) : "-").appendTo(tr);
+    $("<td>").html(details).appendTo(tr);
+    tbody.append(tr);
+  }
+}
+
+async function copyDiagnosticsJson() {
+  const {geminiCreds} = await getSettings(["geminiCreds"]);
+  const telemetry = await geminiTtsEngine.getTelemetry();
+  const redactedCreds = geminiCreds
+    ? Object.assign({}, geminiCreds, {apiKey: geminiCreds.apiKey ? "***REDACTED***" : ""})
+    : null;
+  const payload = JSON.stringify({
+    exportedAt: new Date().toISOString(),
+    config: redactedCreds,
+    telemetry
+  }, null, 2);
+  await navigator.clipboard.writeText(payload);
+  showSuccess("Diagnostics JSON copied to clipboard (API key redacted).");
+}
+
+function showSuccess(msg) {
+  $("#gemini-error").hide();
+  $("#gemini-success").text(msg).show();
+}
+
+function showError(msg) {
+  $("#gemini-success").hide();
+  $("#gemini-error").text(msg).show();
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return "0 B";
+  if (bytes < 1024) return bytes + " B";
+  return (bytes / 1024).toFixed(1) + " KB";
+}
+
+function escapeHtml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}

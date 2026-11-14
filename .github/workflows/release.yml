@@ -1,0 +1,66 @@
+name: Release Firefox XPI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'updates.json'
+      - 'README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read extension version
+        id: meta
+        run: |
+          VERSION=$(node -e "console.log(require('./manifest.json').version)")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Package XPI
+        run: |
+          mkdir -p build
+          zip -r "build/read-aloud-gemini@local.xpi" . \
+            -x ".git/*" ".github/*" "build/*" "tests/*" "node_modules/*" "updates.json"
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: "v${{ steps.meta.outputs.version }}"
+          files: build/read-aloud-gemini@local.xpi
+
+      - name: Update updates.json
+        run: |
+          node -e '
+            const fs = require("fs");
+            const version = process.env.VERSION;
+            const link = `https://github.com/${process.env.REPO}/releases/download/v${version}/read-aloud-gemini@local.xpi`;
+            const data = JSON.parse(fs.readFileSync("updates.json", "utf8"));
+            const list = data.addons["read-aloud-gemini@local"].updates;
+            if (!list.some(u => u.version === version)) {
+              list.push({ version, update_link: link });
+              fs.writeFileSync("updates.json", JSON.stringify(data, null, 2) + "\n");
+            }
+          '
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          REPO: ${{ github.repository }}
+
+      - name: Commit updates.json if changed
+        run: |
+          if ! git diff --quiet updates.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add updates.json
+            git commit -m "Update updates.json for v${{ steps.meta.outputs.version }} [skip ci]"
+            git push
+          fi

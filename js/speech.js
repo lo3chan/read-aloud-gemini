@@ -1,6 +1,6 @@
 
 function Speech(texts, options) {
-  options.rate = (options.rate || 1) * (isGoogleNetworkVoice(options.voice) ? 0.9 : 1);
+  options.rate = options.rate || 1;
 
   const wordReplacements = parseWordReplacements(options.wordReplacements).rules
   if (wordReplacements.length) {
@@ -33,52 +33,14 @@ function Speech(texts, options) {
   this.gotoEnd = () => { navigationRevision++; cmd$.next({name: "gotoEnd"}) }
 
   function pickEngine() {
-    if (isPiperVoice(options.voice)) return piperTtsEngine;
-    if (isSupertonicVoice(options.voice)) return supertonicTtsEngine;
-    if (isPocketTtsVoice(options.voice)) return pocketTtsEngine;
-    if (isNghiTtsVoice(options.voice)) return nghiTtsEngine;
-    if (isAzure(options.voice)) return azureTtsEngine;
-    if (isOpenai(options.voice)) return openaiTtsEngine;
-    if (isUseMyPhone(options.voice)) return phoneTtsEngine;
-    if (isGoogleTranslate(options.voice) && !/\s(Hebrew|Telugu)$/.test(options.voice.voiceName)) {
-      return googleTranslateTtsEngine
-    }
-    if (isAmazonPolly(options.voice)) return amazonPollyTtsEngine;
-    if (isGoogleWavenet(options.voice)) return googleWavenetTtsEngine;
-    if (isIbmWatson(options.voice)) return ibmWatsonTtsEngine;
-    if (isPremiumVoice(options.voice) || isReadAloudCloud(options.voice)) {
-      premiumTtsEngine.prepare(options)
-      return premiumTtsEngine;
-    }
-    // Catch silent playback stalls when the word-based duration estimate misses
-    // Chrome's built-in Google TTS extension's 15-second playback limit.
-    if (isGoogleNetworkVoice(options.voice)) return new TimeoutTtsEngine(browserTtsEngine, 3*1000, 16*1000);
-    return browserTtsEngine;
+    if (options.voice && isGeminiTts(options.voice)) return geminiTtsEngine;
+    return geminiTtsEngine;
   }
 
   function getChunks(text) {
-    var isEA = /^(zh|ko|ja)(?:-|$)/i.test(options.lang);
     var punctuator = createPunctuator(options.lang);
-    if (isOfflineVoice(options.voice) && !isUseMyPhone(options.voice)) {
-      return punctuator.getParagraphs(text).flatMap(paragraph => punctuator.getSentences(paragraph));
-    }
-    if (isGoogleNetworkVoice(options.voice)) {
-      // Historically Chrome's built-in Google TTS extension can go silent after ~15 seconds
-      // without an error or event, through either chrome.tts or Web Speech.
-      // These language/rate-adjusted word budgets approximate that duration;
-      // the 16-second engine timeout catches segments that still run too long.
-      var wordLimit = (/^(de|ru|es|pt|id)/.test(options.lang) ? 32 : 36) * (isEA ? 2 : 1) * options.rate;
-      return new WordBreaker(wordLimit, punctuator).breakText(text);
-    }
-    else {
-      // Translate's jQ1olc RPC returns no audio above 200 characters in our
-      // ASCII boundary probe (2026-10-10); see docs/tts-limit-verification.md.
-      if (isGoogleTranslate(options.voice)) return new CharBreaker(200, punctuator).breakText(text);
-      else if (isPiperVoice(options.voice) || isSupertonicVoice(options.voice) || isPocketTtsVoice(options.voice) || isNghiTtsVoice(options.voice)) return [text];
-      // Prefer 750-character synthesis chunks; combine small paragraphs up to
-      // 200 characters to reduce request overhead while retaining boundaries.
-      else return new CharBreaker(750, punctuator, 200).breakText(text);
-    }
+    const maxLen = Math.max(100, Math.min(4000, Number(options.chunkSize) || 750));
+    return new CharBreaker(maxLen, punctuator, Math.min(200, maxLen)).breakText(text);
   }
 
   async function getState() {
@@ -98,18 +60,11 @@ function Speech(texts, options) {
       statusId,
       navigationRevision,
       voiceName: options.voice.voiceName,
-      voiceLocation: isOfflineVoice(options.voice) ? "offline" : "cloud",
+      voiceLocation: "cloud",
       detectedLang: options.lang,
       voiceLanguages: getVoiceLanguages(options.voice),
       isRTL: /^(ar|az|dv|he|iw|ku|fa|ur)\b/.test(options.lang),
-      engine: immediate(() => {
-        switch (engine) {
-          case piperTtsEngine: return 'Piper'
-          case supertonicTtsEngine: return 'Supertonic'
-          case pocketTtsEngine: return 'PocketTTS'
-          case nghiTtsEngine: return 'NghiTTS'
-        }
-      })
+      engine: "Gemini"
     }
   }
 
@@ -307,13 +262,8 @@ function Speech(texts, options) {
           }
         } else if (state == "paused") {
           if (playing$) {
-            if (isGoogleNetworkVoice(options.voice) || isChromeOSNative(options.voice)) {
-              engine.stop()
-              return null
-            } else {
-              engine.pause()
-              return playing$
-            }
+            engine.pause()
+            return playing$
           } else {
             return null
           }

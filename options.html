@@ -107,6 +107,64 @@
         <option value="false" data-i18n="options_audio_playback_standalone"></option>
         <option value="true" data-i18n="options_audio_playback_embedded"></option>
       </select>
+
+      <div>
+        <span>Backend</span>
+      </div>
+      <select id="gemini-backend" class="form-control">
+        <option value="gemini-api">Gemini API Key (Free Tier)</option>
+        <option value="portal">Google Cloud Portal (No API Key)</option>
+        <option value="cloud-tts">Google Cloud TTS API Key</option>
+      </select>
+
+      <div id="gemini-key-label">
+        <span>API Key</span>
+      </div>
+      <div id="gemini-key-control">
+        <input id="gemini-api-key" type="password" class="form-control" placeholder="AIza... or AQ..." />
+      </div>
+
+      <div id="portal-auth-label" style="display: none;">
+        <span>Portal</span>
+      </div>
+      <div id="portal-auth-control" style="display: none;">
+        <button type="button" id="portal-auth-btn" class="btn btn-sm btn-outline-info">Authorize Portal</button>
+        <small id="portal-token-status" class="ml-2 text-muted"></small>
+      </div>
+
+      <div>
+        <span>Model</span>
+      </div>
+      <select id="gemini-model" class="form-control">
+        <option value="gemini-3.1-flash-tts-preview">Gemini 3.1 Flash TTS (preview)</option>
+        <option value="gemini-2.5-flash-preview-tts">Gemini 2.5 Flash TTS (preview)</option>
+        <option value="gemini-2.5-pro-preview-tts">Gemini 2.5 Pro TTS (preview)</option>
+        <option value="gemini-3.8-flash-tts">Gemini 3.8 Flash TTS</option>
+      </select>
+
+      <div>
+        <span>Locale</span>
+      </div>
+      <select id="gemini-lang" class="form-control">
+        <option value="en-gb">English (United Kingdom) - en-gb</option>
+        <option value="en-us">English (United States) - en-us</option>
+        <option value="en-au">English (Australia) - en-au</option>
+        <option value="en-in">English (India) - en-in</option>
+        <option value="es-es">Spanish (Spain) - es-es</option>
+        <option value="es-us">Spanish (US) - es-us</option>
+        <option value="fr-fr">French (France) - fr-fr</option>
+        <option value="de-de">German (Germany) - de-de</option>
+        <option value="it-it">Italian (Italy) - it-it</option>
+        <option value="ja-jp">Japanese (Japan) - ja-jp</option>
+        <option value="ko-kr">Korean (South Korea) - ko-kr</option>
+        <option value="pt-br">Portuguese (Brazil) - pt-br</option>
+        <option value="zh-cn">Chinese (Mandarin) - zh-cn</option>
+      </select>
+
+      <div>
+        <span>Instructions</span>
+      </div>
+      <input id="gemini-prompt" type="text" class="form-control" placeholder="Speak with a natural, warm Scottish accent." />
     </div>
 
     <div class="form-group buttons">
@@ -115,6 +173,7 @@
         <span data-i18n="options_test_button"></span>
       </button>
       <button type="button" id="reset" class="btn btn-warning" data-i18n="options_reset_button"></button>
+      <button type="button" id="open-diagnostics" class="btn btn-secondary">Diagnostics</button>
       <span class="green-check">
         <i class="material-icons"><svg><use href="img/icons.svg#check"/></svg></i>
       </span>

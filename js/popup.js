@@ -146,8 +146,11 @@ function handleError(err) {
         case "#auth-wavenet":
           brapi.permissions.request(config.wavenetPerms)
             .then(function(granted) {
-              if (granted) bgPageInvoke("authWavenet");
+              if (granted) return bgPageInvoke("authWavenet");
             })
+            .catch(function(err) {
+              $("#status").text(err.message).show();
+            });
           break;
         case "#open-pdf-viewer":
           brapi.tabs.create({url: config.pdfViewerUrl})
@@ -183,6 +186,40 @@ function handleError(err) {
 
 
 rxjs.concat(domReady(), rxjs.interval(500)).subscribe(updateButtons)
+
+domReady().then(async () => {
+  const settings = await getSettings();
+  const voiceName = settings.voiceName || "";
+  const rate = (await getSetting("rate" + voiceName)) ?? (await getSetting("rate")) ?? defaults.rate;
+  const pitch = settings.pitch ?? defaults.pitch;
+  const volume = settings.volume ?? defaults.volume;
+
+  $("#popup-rate").val(rate);
+  $("#popup-rate-val").text(Number(rate).toFixed(2) + "x");
+  $("#popup-pitch").val(pitch);
+  $("#popup-pitch-val").text(Number(pitch).toFixed(2));
+  $("#popup-volume").val(volume);
+  $("#popup-volume-val").text(Math.round(Number(volume) * 100) + "%");
+
+  $("#popup-rate").on("input change", async function() {
+    const val = Number($(this).val());
+    $("#popup-rate-val").text(val.toFixed(2) + "x");
+    const curVoice = (await getSetting("voiceName")) || "";
+    await updateSetting("rate" + curVoice, Number(val.toFixed(3)));
+  });
+
+  $("#popup-pitch").on("input change", async function() {
+    const val = Number($(this).val());
+    $("#popup-pitch-val").text(val.toFixed(2));
+    await updateSetting("pitch", Number(val.toFixed(2)));
+  });
+
+  $("#popup-volume").on("input change", async function() {
+    const val = Number($(this).val());
+    $("#popup-volume-val").text(Math.round(val * 100) + "%");
+    await updateSetting("volume", Number(val.toFixed(2)));
+  });
+});
 
 async function updateButtons() {
   const [settings, stateInfo] = await Promise.all([

@@ -4,7 +4,7 @@
   "name": "__MSG_extension_name__",
   "short_name": "__MSG_extension_short_name__",
   "description": "__MSG_extension_description__",
-  "version": "2.25.0",
+  "version": "2.25.1",
   "default_locale": "en",
   "minimum_chrome_version": "99",
 
@@ -33,14 +33,18 @@
     "scripting",
     "storage",
     "tts",
-    "ttsEngine"
+    "ttsEngine",
+    "webRequest"
   ],
   "optional_permissions": [
-    "webRequest",
     "webNavigation"
   ],
   "host_permissions": [
-    "https://translate.google.com/"
+    "https://generativelanguage.googleapis.com/*",
+    "https://texttospeech.googleapis.com/*",
+    "https://cxl-services.appspot.com/*",
+    "https://cloud.google.com/*",
+    "https://www.gstatic.com/*"
   ],
   "optional_host_permissions": [
     "http://*/",
@@ -61,7 +65,23 @@
     }
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "scripts": [
+      "js/rxjs.umd.min.js",
+      "js/defaults.js",
+      "js/messaging.js",
+      "js/content-handlers.js",
+      "js/offscreen-manager.js",
+      "js/reader-manager.js",
+      "js/events.js"
+    ]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "read-aloud-gemini@local",
+      "strict_min_version": "121.0",
+      "update_url": "https://raw.githubusercontent.com/lo3chan/read-aloud-gemini/main/updates.json"
+    }
   },
   "options_page": "options.html",
   "options_ui": {

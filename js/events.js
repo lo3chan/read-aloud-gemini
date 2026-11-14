@@ -355,11 +355,11 @@ function reportIssue(url, comment) {
 }
 
 function authWavenet() {
-  createTab("https://cloud.google.com/text-to-speech/#put-text-to-speech-into-action", true)
+  return createTab("https://cloud.google.com/text-to-speech/#put-text-to-speech-into-action", true)
     .then(function(tab) {
       addRequestListener();
       brapi.tabs.onRemoved.addListener(onTabRemoved);
-      return showInstructions();
+      return showInstructions().catch(console.error);
 
       function addRequestListener() {
         brapi.webRequest.onBeforeRequest.addListener(onRequest, {
@@ -378,26 +378,27 @@ function authWavenet() {
         var qs = parser.search ? parseQueryString(parser.search) : {};
         if (qs.token) {
           updateSettings({gcpToken: qs.token});
-          showSuccess();
+          showSuccess().catch(console.error);
         }
       }
       function showInstructions() {
         return brapi.scripting.executeScript({
           target: {tabId: tab.id},
           func: function() {
-            var elem = document.createElement('DIV')
+            var elem = document.getElementById('ra-notice') || document.createElement('DIV')
             elem.id = 'ra-notice'
             elem.style.position = 'fixed'
             elem.style.top = '0'
             elem.style.left = '0'
             elem.style.right = '0'
             elem.style.backgroundColor = 'yellow'
+            elem.style.color = '#000'
             elem.style.padding = '20px'
             elem.style.fontSize = 'larger'
             elem.style.zIndex = 999000
             elem.style.textAlign = 'center'
             elem.innerHTML = 'Please click the blue SPEAK-IT button, then check the I-AM-NOT-A-ROBOT checkbox.'
-            document.body.appendChild(elem)
+            if (!elem.parentNode && document.body) document.body.appendChild(elem)
           }
         })
       }
@@ -405,9 +406,20 @@ function authWavenet() {
         return brapi.scripting.executeScript({
           target: {tabId: tab.id},
           func: function() {
-            var elem = document.getElementById('ra-notice')
+            var elem = document.getElementById('ra-notice') || document.createElement('DIV')
+            elem.id = 'ra-notice'
+            elem.style.position = 'fixed'
+            elem.style.top = '0'
+            elem.style.left = '0'
+            elem.style.right = '0'
             elem.style.backgroundColor = '#0d0'
+            elem.style.color = '#000'
+            elem.style.padding = '20px'
+            elem.style.fontSize = 'larger'
+            elem.style.zIndex = 999000
+            elem.style.textAlign = 'center'
             elem.innerHTML = 'Successful, you can now use Google Wavenet voices. You may close this tab.'
+            if (!elem.parentNode && document.body) document.body.appendChild(elem)
           }
         })
       }

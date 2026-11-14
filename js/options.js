@@ -80,12 +80,6 @@
           var voiceName = $(this).val();
           if (voiceName == "@custom") brapi.tabs.create({url: "custom-voices.html"});
           else if (voiceName == "@languages") brapi.tabs.create({url: "languages.html"});
-          else if (voiceName == "@natural") brapi.tabs.create({url: "natural-voices.html"});
-          else if (voiceName == "@premium") brapi.tabs.create({url: "premium-voices.html"});
-          else if (voiceName == "@piper") bgPageInvoke("managePiperVoices").catch(console.error)
-          else if (voiceName == "@supertonic") bgPageInvoke("manageSupertonicVoices").catch(console.error)
-          else if (voiceName == "@pockettts") bgPageInvoke("managePocketTtsVoices").catch(console.error)
-          else if (voiceName == "@nghitts") bgPageInvoke("manageNghiTtsVoices").catch(console.error)
           else updateSettings({voiceName})
         });
       $("#languages-edit-button")
@@ -109,14 +103,11 @@
       $("#voices").val(voiceName || "")
     })
 
-  rxjs.combineLatest(
-    observeSetting("voiceName"),
-    observeSetting("gcpCreds"),
-    domReadyPromise
-  ).subscribe(([voiceName, gcpCreds]) => {
-    document.getElementById("voice-info-button").hidden = !(voiceName && isGoogleWavenet({voiceName}) && !gcpCreds)
-    document.getElementById("voice-info").hidden = true
-    document.getElementById("voice-info-button").setAttribute("aria-expanded", "false")
+  domReadyPromise.then(() => {
+    const voiceInfoBtn = document.getElementById("voice-info-button");
+    const voiceInfo = document.getElementById("voice-info");
+    if (voiceInfoBtn) voiceInfoBtn.hidden = true;
+    if (voiceInfo) voiceInfo.hidden = true;
   })
 
 
@@ -234,7 +225,9 @@
   const demoSpeech = {
     get(lang) {
       return this[lang] || (
-        this[lang] = ajaxGet(config.serviceUrl + "/read-aloud/get-demo-speech-text/" + lang).then(JSON.parse)
+        this[lang] = ajaxGet(config.serviceUrl + "/read-aloud/get-demo-speech-text/" + lang)
+          .then(JSON.parse)
+          .catch(() => ({text: "Movies, oh my gosh, I just absolutely love them. They're like time machines taking you to different worlds."}))
       )
     }
   }
@@ -260,6 +253,7 @@
               rxjs.exhaustMap(() =>
                 rxjs.timer(100, 500).pipe(
                   rxjs.exhaustMap(() => bgPageInvoke("getPlaybackState")),
+                  rxjs.filter(Boolean),
                   rxjs.takeWhile(({state}) => state != "STOPPED", true)
                 )
               )
@@ -292,11 +286,73 @@
   domReadyPromise
     .then(() => {
       $("#test-voice").click(() => voiceTestSubject.next())
+      $("#open-diagnostics").click(() => brapi.tabs.create({url: "custom-voices.html"}))
       $("#reset")
         .click(function() {
           clearSettings()
         });
     })
+
+  // Gemini TTS inline settings in Options
+  rxjs.combineLatest([
+    observeSetting("geminiCreds"),
+    observeSetting("gcpToken"),
+    domReadyPromise
+  ]).subscribe(([rawCreds, gcpToken]) => {
+    const defaults = geminiTtsEngine.defaultConfig;
+    const cfg = Object.assign({}, defaults, rawCreds || {});
+    $("#gemini-backend").val(cfg.backend || defaults.backend);
+    $("#gemini-api-key").val(cfg.apiKey || "");
+    const modelVal = cfg.model || defaults.model;
+    if ($(`#gemini-model option[value="${modelVal}"]`).length === 0) {
+      $("<option>").val(modelVal).text(modelVal).appendTo("#gemini-model");
+    }
+    $("#gemini-model").val(modelVal);
+
+    const langVal = (cfg.languageCode || defaults.languageCode).toLowerCase();
+    if ($(`#gemini-lang option[value="${langVal}"]`).length === 0) {
+      $("<option>").val(langVal).text(langVal).appendTo("#gemini-lang");
+    }
+    $("#gemini-lang").val(langVal);
+    $("#gemini-prompt").val(cfg.prompt != null ? cfg.prompt : defaults.prompt);
+    const isPortal = (cfg.backend || defaults.backend) === "portal";
+    $("#gemini-key-label, #gemini-key-control").toggle(!isPortal);
+    $("#portal-auth-label, #portal-auth-control").toggle(isPortal);
+    $("#portal-token-status").text(gcpToken ? "Authorized" : "Not authorized");
+  });
+
+  domReadyPromise.then(() => {
+    async function saveGeminiOptions() {
+      const existing = (await getSetting("geminiCreds")) || {};
+      const next = Object.assign({}, geminiTtsEngine.defaultConfig, existing, {
+        backend: $("#gemini-backend").val(),
+        apiKey: $("#gemini-api-key").val().trim(),
+        model: $("#gemini-model").val().trim() || geminiTtsEngine.defaultConfig.model,
+        languageCode: $("#gemini-lang").val().trim() || "en-gb",
+        prompt: $("#gemini-prompt").val()
+      });
+      await updateSettings({geminiCreds: next});
+    }
+
+    $("#gemini-backend, #gemini-api-key, #gemini-model, #gemini-lang, #gemini-prompt")
+      .on("change", saveGeminiOptions);
+
+    $("#portal-auth-btn").click(() => {
+      brapi.permissions.request(config.wavenetPerms)
+        .then(async (granted) => {
+          if (!granted) {
+            handleError(new Error("Host permission for Google Cloud TTS portal was denied."));
+            return;
+          }
+          const s = await getSettings(["geminiConfig"]);
+          await updateSettings({
+            geminiConfig: Object.assign({}, s.geminiConfig || {}, { backend: "portal" })
+          });
+          await bgPageInvoke("authWavenet");
+        })
+        .catch(handleError);
+    });
+  })
 
 
 
@@ -344,135 +400,37 @@
         const voiceLanguages = getVoiceLanguages(voice)
         return !voiceLanguages
           || voiceLanguages.map(parseLang).some(({ lang }) => selectedLangs.includes(lang))
-          || isPiperVoice(voice)
-          || isSupertonicVoice(voice)
-          || isPocketTtsVoice(voice)
-          || isNghiTtsVoice(voice)
-          || isOpenai(voice)
+          || isGeminiTts(voice)
       });
 
-    //group by standard/premium
-    var groups = Object.assign({
-        experimental: [],
-        offline: [],
-        premium: [],
-        standard: [],
-      },
-      voices.groupBy(function(voice) {
-        if (isPiperVoice(voice) || isSupertonicVoice(voice) || isPocketTtsVoice(voice) || isNghiTtsVoice(voice)) return "experimental"
-        if (isOfflineVoice(voice)) return "offline"
-        if (isPremiumVoice(voice)) return "premium";
-        return "standard"
-      }))
-    for (var name in groups) groups[name].sort(voiceSorter);
+    voices.sort(voiceSorter);
 
-    //create the offline optgroup
-    const offline = $("<optgroup>")
-      .attr("label", brapi.i18n.getMessage("options_voicegroup_offline"))
-      .appendTo($("#voices"))
-    for (const voice of groups.offline) {
-      $("<option>")
-        .val(voice.voiceName)
-        .text(voice.voiceName)
-        .appendTo(offline)
-    }
-    if (canEnableGoogleNaturalVoices()) {
-      $("<option>")
-        .val("@natural")
-        .text("✨ " + (brapi.i18n.getMessage("options_enable_natural_voices") || "Enable Google Natural voices..."))
-        .appendTo(offline)
-    }
-
-    //create experimental group
-    $("<optgroup>").appendTo("#voices")
-    const experimental = $("<optgroup>")
-      .attr("label", brapi.i18n.getMessage("options_voicegroup_experimental"))
-      .appendTo("#voices")
-    for (const voice of groups.experimental) {
-      $("<option>")
-        .val(voice.voiceName)
-        .text(voice.voiceName)
-        .appendTo(experimental)
-    }
-    $("<option>")
-      .val("@piper")
-      .text(brapi.i18n.getMessage("options_enable_piper_voices"))
-      .appendTo(experimental)
-    $("<option>")
-      .val("@supertonic")
-      .text(brapi.i18n.getMessage("options_enable_supertonic_voices"))
-      .appendTo(experimental)
-    if (!selectedLangs || selectedLangs.includes('en')) {
-      $("<option>")
-        .val("@pockettts")
-        .text(brapi.i18n.getMessage("options_enable_pockettts_voices") || "Install Pocket TTS voices...")
-        .appendTo(experimental)
-    }
-    if (!selectedLangs || selectedLangs.includes('vi')) {
-      $("<option>")
-        .val("@nghitts")
-        .text(brapi.i18n.getMessage("options_enable_nghitts_voices") || "Install NghiTTS voices...")
-        .appendTo(experimental)
-    }
-
-    //create the standard optgroup
-    $("<optgroup>").appendTo($("#voices"))
-    var standard = $("<optgroup>")
-      .attr("label", brapi.i18n.getMessage("options_voicegroup_standard"))
+    const geminiGroup = $("<optgroup>")
+      .attr("label", "Gemini TTS")
       .appendTo($("#voices"));
-    groups.standard.forEach(function(voice) {
+    voices.forEach(function(voice) {
       $("<option>")
         .val(voice.voiceName)
         .text(voice.voiceName)
-        .appendTo(standard);
+        .appendTo(geminiGroup);
     });
 
-    //create the premium optgroup
-    $("<optgroup>").appendTo($("#voices"));
-    var premium = $("<optgroup>")
-      .attr("label", brapi.i18n.getMessage("options_voicegroup_premium"))
-      .appendTo($("#voices"));
-    groups.premium.forEach(function(voice) {
-      $("<option>")
-        .val(voice.voiceName)
-        .text(voice.voiceName)
-        .appendTo(premium);
-    });
-
-    //create the additional optgroup
     $("<optgroup>").appendTo($("#voices"));
     var additional = $("<optgroup>")
-      .attr("label", brapi.i18n.getMessage("options_voicegroup_additional"))
+      .attr("label", brapi.i18n.getMessage("options_voicegroup_additional") || "Settings")
       .appendTo($("#voices"));
     $("<option>")
       .val("@languages")
-      .text(brapi.i18n.getMessage("options_add_more_languages"))
+      .text(brapi.i18n.getMessage("options_add_more_languages") || "Add more languages...")
       .appendTo(additional)
     $("<option>")
       .val("@custom")
-      .text(brapi.i18n.getMessage("options_enable_custom_voices"))
+      .text("Configure Gemini TTS & Diagnostics...")
       .appendTo(additional)
   }
 
-  function canEnableGoogleNaturalVoices() {
-    return isGoogleChrome() && !isChromeOS()
-  }
-
   function voiceSorter(a, b) {
-    function getWeight(voice) {
-      var weight = 0
-      //native voices should appear before non-natives in Standard group
-      if (!isNativeVoice(voice)) weight += 10
-      //ReadAloud Generic Voice should appear first among the non-natives
-      if (!isReadAloudCloud(voice)) weight += 1
-      //UseMyPhone should appear last in Offline group
-      if (isUseMyPhone(voice)) weight += 1
-      return weight
-    }
-    return getWeight(a)-getWeight(b)
-      //group voices provided by the same extension (e.g. Google Natural voices) together
-      || (a.extensionId || "").localeCompare(b.extensionId || "")
-      || a.voiceName.localeCompare(b.voiceName)
+    return a.voiceName.localeCompare(b.voiceName);
   }
 
 
@@ -502,8 +460,9 @@
           case "#auth-wavenet":
             brapi.permissions.request(config.wavenetPerms)
               .then(function(granted) {
-                if (granted) bgPageInvoke("authWavenet");
+                if (granted) return bgPageInvoke("authWavenet");
               })
+              .catch(handleError);
             break;
           case "#connect-phone":
             location.href = "connect-phone.html"

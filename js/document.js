@@ -312,14 +312,15 @@ function Doc(source, onEnd) {
 
   async function getSpeech(texts) {
     const settings = await getSettings()
-    settings.rate = await getSetting("rate" + (settings.voiceName || ""))
+    settings.rate = (await getSetting("rate" + (settings.voiceName || ""))) ?? (await getSetting("rate"))
     var lang = (!info.detectedLang || info.lang && info.lang.startsWith(info.detectedLang)) ? info.lang : info.detectedLang;
     console.log("Declared", info.lang, "- Detected", info.detectedLang, "- Chosen", lang)
     var options = {
-      rate: settings.rate || defaults.rate,
-      pitch: settings.pitch || defaults.pitch,
-      volume: settings.volume || defaults.volume,
+      rate: settings.rate != null ? settings.rate : defaults.rate,
+      pitch: settings.pitch != null ? settings.pitch : defaults.pitch,
+      volume: settings.volume != null ? settings.volume : defaults.volume,
       wordReplacements: settings.wordReplacements,
+      chunkSize: settings.geminiCreds && settings.geminiCreds.chunkSize,
       lang: config.langMap[lang] || lang || 'en-US',
     }
     const voice = await getSpeechVoice(settings.voiceName, options.lang)

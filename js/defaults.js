@@ -26,8 +26,7 @@ var config = {
     'about:',
   ],
   wavenetPerms: {
-    permissions: ["webRequest"],
-    origins: ["https://*/"]
+    origins: ["https://cloud.google.com/*", "https://cxl-services.appspot.com/*", "https://www.gstatic.com/*"]
   },
 }
 
@@ -152,36 +151,9 @@ function observeSetting(name) {
  * VOICES
  */
 const voices$ = rxjs.combineLatest({
-  awsCreds: observeSetting("awsCreds"),
-  gcpCreds: observeSetting("gcpCreds"),
-  ibmCreds: observeSetting("ibmCreds"),
-  openaiCreds: observeSetting("openaiCreds"),
-  azureCreds: observeSetting("azureCreds"),
-  piperVoices: observeSetting("piperVoices"),
-  supertonicVoices: observeSetting("supertonicVoices"),
-  pocketTtsVoices: observeSetting("pocketTtsVoices"),
-  nghiTtsVoices: observeSetting("nghiTtsVoices"),
-  ttsVoicesChanged: brapi.tts?.onVoicesChanged
-    ? rxjs.fromEventPattern(h => brapi.tts.onVoicesChanged.addListener(h), h => brapi.tts.onVoicesChanged.removeListener(h))
-      .pipe(rxjs.debounceTime(500), rxjs.startWith(null))
-    : rxjs.of(null),
+  geminiCreds: observeSetting("geminiCreds"),
 }).pipe(
-  rxjs.exhaustMap(settings => Promise.all([
-    browserTtsEngine.getVoices(),
-    googleTranslateTtsEngine.getVoices(),
-    phoneTtsEngine.getVoices(),
-    settings.supertonicVoices || [],
-    settings.pocketTtsVoices || [],
-    settings.piperVoices || [],
-    settings.nghiTtsVoices || [],
-    settings.openaiCreds ? openaiTtsEngine.getVoices() : [],
-    settings.awsCreds ? amazonPollyTtsEngine.getVoices() : [],
-    settings.gcpCreds ? googleWavenetTtsEngine.getVoices() : googleWavenetTtsEngine.getFreeVoices(),
-    settings.ibmCreds ? ibmWatsonTtsEngine.getVoices() : [],
-    settings.azureCreds ? azureTtsEngine.getVoices() : [],
-    premiumTtsEngine.getVoices(),
-  ])),
-  rxjs.map(arr => arr.flat()),
+  rxjs.exhaustMap(() => geminiTtsEngine.getVoices()),
   rxjs.shareReplay(1)
 )
 
@@ -214,132 +186,39 @@ function getFirstLanguage(voice) {
 }
 
 function isOfflineVoice(voice) {
-  return voice.remote == false
+  return false;
 }
 
-//legacy "Google US English" etc. voices from Chrome's built-in Google Network Speech extension
-function isGoogleNetworkVoice(voice) {
-  return /^Google\s/.test(voice.voiceName) && !isGoogleNaturalVoice(voice);
-}
-
-function isGoogleNaturalVoice(voice) {
-  //the Natural voices extension also provides lower-quality "Chrome OS ..." voices, so match by name
-  return /^Google\s.*\(Natural\)$/.test(voice.voiceName)
-}
-
-function isChromeOSNative(voice) {
-  return /^Chrome\sOS\s/.test(voice.voiceName);
-}
-
-function isGoogleTranslate(voice) {
-  return /^GoogleTranslate /.test(voice.voiceName);
-}
-
-function isAmazonCloud(voice) {
-  return /^Amazon /.test(voice.voiceName);
-}
-
-function isMicrosoftCloud(voice) {
-  return /^Microsoft /.test(voice.voiceName) && voice.voiceName.indexOf(' - ') == -1;
-}
-
-function isReadAloudCloud(voice) {
-  return /^ReadAloud /.test(voice.voiceName)
-}
-
-function isAmazonPolly(voice) {
-  return /^AmazonPolly /.test(voice.voiceName);
-}
-
-function isGoogleWavenet(voice) {
-  return /^Google(Standard|Wavenet|Neural2|Studio|Chirp-HD|Chirp3-HD|News|Casual|Polyglot) /.test(voice.voiceName);
-}
-
-function isGoogleStudio(voice) {
-  return /^Google(Studio) /.test(voice.voiceName);
-}
-
-function isIbmWatson(voice) {
-  return /^IBM-Watson /.test(voice.voiceName);
-}
-
-function isOpenai(voice) {
-  return /^OpenAI /.test(voice.voiceName);
-}
-
-function isAzure(voice) {
-  return /^Azure /.test(voice.voiceName);
-}
-
-function isPiperVoice(voice) {
-  return /^Piper /.test(voice.voiceName)
-}
-
-function isSupertonicVoice(voice) {
-  return /^Supertonic /.test(voice.voiceName)
-}
-
-function isPocketTtsVoice(voice) {
-  return /^PocketTTS /.test(voice.voiceName)
-}
-
-function isNghiTtsVoice(voice) {
-  return /^NghiTTS /.test(voice.voiceName)
-}
-
-function isRHVoice(voice) {
-  return /^RHVoice /.test(voice.voiceName)
+function isGeminiTts(voice) {
+  return Boolean(voice && /^Gemini /.test(voice.voiceName));
 }
 
 function isUseMyPhone(voice) {
-  return voice.isUseMyPhone == true
+  return false;
 }
 
 function isNativeVoice(voice) {
-  return !(
-    isGoogleTranslate(voice)
-    || isAmazonCloud(voice)
-    || isMicrosoftCloud(voice)
-    || isRHVoice(voice)
-    || isReadAloudCloud(voice)
-    || isAmazonPolly(voice)
-    || isGoogleWavenet(voice)
-    || isIbmWatson(voice)
-    || isOpenai(voice)
-    || isAzure(voice)
-  )
+  return !isGeminiTts(voice);
 }
 
 function isPremiumVoice(voice) {
-  return isAmazonCloud(voice) || isMicrosoftCloud(voice) || isRHVoice(voice)
+  return false;
 }
 
 async function getSpeechVoice(voiceName, lang) {
-  let voices = await rxjs.firstValueFrom(voices$)
+  let voices = await rxjs.firstValueFrom(voices$);
   var voice;
-  //if a specific voice is indicated
   if (voiceName) voice = findVoiceByName(voices, voiceName);
-  //if no specific voice indicated, but a preferred voice was configured for the language
   if (!voice && lang) {
-    const preferredVoiceByLang = (await getSetting("preferredVoices")) || {}
-    voiceName = preferredVoiceByLang[parseLang(lang).lang]
+    const preferredVoiceByLang = (await getSetting("preferredVoices")) || {};
+    voiceName = preferredVoiceByLang[parseLang(lang).lang];
     if (voiceName) voice = findVoiceByName(voices, voiceName);
   }
-  //otherwise, auto-select in order: Google Natural, offline, native, free, any
   if (!voice && lang) {
-    voices = voices.filter(voice => !isUseMyPhone(voice))
-    voice = findVoiceByLang(voices.filter(isGoogleNaturalVoice), lang)
-      || findVoiceByLang(voices.filter(isOfflineVoice), lang)
-      || findVoiceByLang(voices.filter(isGoogleNetworkVoice), lang)
-      || findVoiceByLang(voices.filter(isNativeVoice), lang)
-
-    if (!voice) {
-      if (!await googleTranslateTtsEngine.ready()) voices = voices.filter(voice => !isGoogleTranslate(voice))
-      voice = findVoiceByLang(voices.filter(isGoogleTranslate), lang)
-        || findVoiceByLang(voices.filter(isPremiumVoice), lang)
-        || findVoiceByLang(voices, lang);
-    }
-    if (voice && isPremiumVoice(voice)) voice = Object.assign({autoSelect: true}, voice);
+    voice = findVoiceByLang(voices, lang) || voices[0] || null;
+  }
+  if (!voice && voices.length) {
+    voice = voices[0];
   }
   return voice;
 }
@@ -919,54 +798,81 @@ function truncateRepeatedChars(text, max) {
 function playAudioHere(urlPromise, options, playbackState$) {
   const audio = getSingletonAudio()
   const silenceTrack = getSilenceTrack()
-  return rxjs.from(urlPromise).pipe(
-    rxjs.exhaustMap(url =>
-      new rxjs.Observable(observer => {
-        audio.defaultPlaybackRate = (options.rate || 1) * (options.rateAdjust || 1)
-        audio.volume = options.volume || 1
-        audio.oncanplay = () => observer.next()
-        audio.onerror = () => observer.error(new Error(audio.error.message || audio.error.code))
-        audio.src = url
-      })
+  let currentRate = options.rate != null ? options.rate : 1
+  const applyRate = rate => {
+    currentRate = rate != null ? rate : 1
+    const effectiveRate = currentRate * (options.rateAdjust || 1)
+    audio.defaultPlaybackRate = effectiveRate
+    audio.playbackRate = effectiveRate
+  }
+  const applyVolume = vol => {
+    audio.volume = vol != null ? Math.max(0, Math.min(1, Number(vol))) : 1
+  }
+  const liveSettings$ = rxjs.merge(
+    observeSetting("rate" + (options.voice?.voiceName || "")).pipe(
+      rxjs.tap(r => { if (r != null) applyRate(r) })
     ),
-    rxjs.exhaustMap(() =>
-      options.startTime > Date.now() ? rxjs.timer(options.startTime - Date.now()) : rxjs.of(0)
+    observeSetting("rate").pipe(
+      rxjs.tap(r => { if (r != null && !options.voice?.voiceName) applyRate(r) })
     ),
-    rxjs.exhaustMap(() =>
-      rxjs.merge(
-        rxjs.concat(
-          rxjs.of({type: "start"}),
-          new rxjs.Observable(observer => {
-            audio.onended = () => observer.next({type: "end"})
-            audio.onerror = () => observer.error(new Error(audio.error.message || audio.error.code))
-          })
-        ),
-        playbackState$.pipe(
-          rxjs.distinctUntilChanged(),
-          rxjs.switchMap(state =>
-            rxjs.iif(
-              () => state == "resumed",
-              rxjs.defer(async () => {
-                try {
-                  await audio.play()
-                  silenceTrack.start()
-                } catch (err) {
-                  if (err instanceof DOMException) throw new Error(err.name || err.message)
-                  else throw err
-                }
-              }).pipe(
-                rxjs.exhaustMap(() => rxjs.NEVER),
-                rxjs.finalize(() => {
-                  audio.pause()
-                  silenceTrack.stop()
-                })
-              ),
-              rxjs.EMPTY
+    observeSetting("volume").pipe(
+      rxjs.tap(v => { if (v != null) applyVolume(v) })
+    )
+  ).pipe(rxjs.ignoreElements())
+  return rxjs.merge(
+    liveSettings$,
+    rxjs.from(urlPromise).pipe(
+      rxjs.exhaustMap(url =>
+        new rxjs.Observable(observer => {
+          applyRate(currentRate)
+          applyVolume(options.volume)
+          audio.oncanplay = () => observer.next()
+          audio.onerror = () => observer.error(new Error(audio.error.message || audio.error.code))
+          audio.src = url
+        })
+      ),
+      rxjs.exhaustMap(() =>
+        options.startTime > Date.now() ? rxjs.timer(options.startTime - Date.now()) : rxjs.of(0)
+      ),
+      rxjs.exhaustMap(() =>
+        rxjs.merge(
+          rxjs.concat(
+            rxjs.of({type: "start"}),
+            new rxjs.Observable(observer => {
+              audio.onended = () => observer.next({type: "end"})
+              audio.onerror = () => observer.error(new Error(audio.error.message || audio.error.code))
+            })
+          ),
+          playbackState$.pipe(
+            rxjs.distinctUntilChanged(),
+            rxjs.switchMap(state =>
+              rxjs.iif(
+                () => state == "resumed",
+                rxjs.defer(async () => {
+                  try {
+                    applyRate(currentRate)
+                    await audio.play()
+                    silenceTrack.start()
+                  } catch (err) {
+                    if (err instanceof DOMException) throw new Error(err.name || err.message)
+                    else throw err
+                  }
+                }).pipe(
+                  rxjs.exhaustMap(() => rxjs.NEVER),
+                  rxjs.finalize(() => {
+                    audio.pause()
+                    silenceTrack.stop()
+                  })
+                ),
+                rxjs.EMPTY
+              )
             )
           )
         )
-      )
-    ),
+      ),
+      rxjs.takeWhile(event => event.type != "end", true)
+    )
+  ).pipe(
     rxjs.takeWhile(event => event.type != "end", true)
   )
 }
