@@ -94,6 +94,14 @@ async function init() {
       + parseFloat(getComputedStyle(controls).marginTop)
     document.body.style.setProperty("--playback-status-height", `${height}px`)
   }).observe(document.getElementById("reading-controls"));
+  const quickControls = document.getElementById("quick-audio-controls")
+  if (quickControls) {
+    new ResizeObserver(() => {
+      const height = quickControls.getBoundingClientRect().height
+        + parseFloat(getComputedStyle(quickControls).marginTop || 0)
+      document.body.style.setProperty("--quick-audio-height", `${height}px`)
+    }).observe(quickControls)
+  }
   const footer = document.getElementById("footer")
   if (footer) {
     // Return the former always-visible footer line to the reading pane.
@@ -407,7 +415,7 @@ function refreshSize() {
       })
       if (queryString.isPopup) $("#highlight").css({
         width: isMobileOS() ? "100%" : windowSize[0],
-        height: `calc(${windowSize[1]}px - 8px + var(--footer-line-height, 0px) - var(--playback-status-height, 0px) - var(--announcement-height, 0px))`
+        height: `calc(${windowSize[1]}px - 8px + var(--footer-line-height, 0px) - var(--playback-status-height, 0px) - var(--announcement-height, 0px) - var(--quick-audio-height, 0px))`
       })
     })
   function getFontSize(settings) {
