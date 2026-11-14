@@ -78,7 +78,7 @@ function applyConfigToForm(raw) {
     badge.removeClass("badge-secondary").addClass("badge-primary").text("Cloud Portal Proxy");
   } else if (cfg.apiKey) {
     badge.removeClass("badge-secondary").addClass("badge-primary")
-      .text(cfg.backend === "cloud-tts" ? "Cloud TTS v1beta1" : "Gemini API Free Tier");
+      .text(cfg.backend === "cloud-tts" ? "Cloud TTS v1beta1" : "Gemini API");
   } else {
     badge.removeClass("badge-primary").addClass("badge-secondary").text("Not configured");
   }
