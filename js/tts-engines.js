@@ -146,21 +146,8 @@ function GeminiTtsEngine() {
     return "Achernar";
   }
 
-  function applyPitchInstruction(prompt, pitch) {
-    const p = Number(pitch);
-    if (!Number.isFinite(p) || Math.abs(p - 1) < 0.05) return prompt;
-    let cue = "";
-    if (p < 0.7) cue = "Speak in a very deep, low-pitched voice.";
-    else if (p < 0.95) cue = "Speak in a slightly lower-pitched, deeper voice.";
-    else if (p > 1.3) cue = "Speak in a very high-pitched voice.";
-    else cue = "Speak in a slightly higher-pitched voice.";
-    return prompt ? `${prompt} ${cue}` : cue;
-  }
-
-  function buildCloudTtsRequest(text, creds, voiceName, options) {
-    const basePrompt = (creds.prompt || "").trim();
-    const prompt = creds.disableModelName ? "" : applyPitchInstruction(basePrompt, options?.pitch);
-    const pitch = Number(options?.pitch != null ? (options.pitch - 1) * 20 : 0);
+  function buildCloudTtsRequest(text, creds, voiceName) {
+    const prompt = creds.disableModelName ? "" : (creds.prompt || "").trim();
     const input = prompt ? {prompt, text} : {text};
     const voice = {
       languageCode: creds.languageCode || "en-gb",
@@ -172,7 +159,7 @@ function GeminiTtsEngine() {
     return {
       audioConfig: {
         audioEncoding: creds.audioEncoding || "MP3",
-        pitch,
+        pitch: 0,
         speakingRate: 1.0
       },
       input,
@@ -180,9 +167,8 @@ function GeminiTtsEngine() {
     };
   }
 
-  function buildGeminiApiRequest(text, creds, voiceName, options) {
-    const basePrompt = (creds.prompt || "").trim();
-    const prompt = applyPitchInstruction(basePrompt, options?.pitch);
+  function buildGeminiApiRequest(text, creds, voiceName) {
+    const prompt = (creds.prompt || "").trim();
     const combinedText = prompt ? prompt + "\n\n" + text : text;
     return {
       contents: [
@@ -217,8 +203,7 @@ function GeminiTtsEngine() {
         voiceName,
         creds.languageCode,
         creds.prompt,
-        creds.audioEncoding,
-        options.pitch
+        creds.audioEncoding
       ]);
 
       if (cache.has(cacheKey)) {

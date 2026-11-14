@@ -119,7 +119,6 @@ def run_e2e():
             popup_status = popup_page.locator("#status").inner_text() if popup_page.locator("#status").count() else ""
             assert "stateInfo" not in popup_status and "undefined" not in popup_status, f"Popup error on fresh install: {popup_status}"
             assert popup_page.locator("#popup-rate").is_visible(), "Popup speed slider missing"
-            assert popup_page.locator("#popup-pitch").is_visible(), "Popup pitch slider missing"
             assert popup_page.locator("#popup-volume").is_visible(), "Popup volume slider missing"
             popup_page.close()
 
