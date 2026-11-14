@@ -56,17 +56,6 @@
     .subscribe(([account]) => showAccountInfo(account))
 
 
-
-  //hotkey
-  domReadyPromise
-    .then(() => {
-      $("#hotkeys-link").click(function() {
-        brapi.tabs.create({url: getHotkeySettingsUrl()});
-      });
-    })
-
-
-
   domReadyPromise.then(() => {
     initSettingInfoPopup("rate-info-button", "rate-warning", "rate", "options_rate_information")
   })

@@ -315,7 +315,7 @@
     "message": "Out of credits"
   },
   "error_wavenet_auth_required": {
-    "message": "You need to grant additional [permissions](auth-wavenet) to enable Google Wavenet voices"
+    "message": "You need to grant additional [permissions](auth-wavenet) to enable Google Gemini TTS voices"
   },
   "error_phone_not_connected": {
     "message": "Phone not connected. [Connect](connect-phone)"

@@ -418,7 +418,7 @@ function authWavenet() {
             elem.style.fontSize = 'larger'
             elem.style.zIndex = 999000
             elem.style.textAlign = 'center'
-            elem.innerHTML = 'Successful, you can now use Google Wavenet voices. You may close this tab.'
+            elem.innerHTML = 'Successful, you can now use Google Gemini TTS voices. You may close this tab.'
             if (!elem.parentNode && document.body) document.body.appendChild(elem)
           }
         })
