@@ -99,8 +99,8 @@ function parseQueryString(search) {
  * SETTINGS
  */
 const settingsChange$ = rxjs.fromEventPattern(
-  h => brapi.storage.local.onChanged.addListener(h),
-  h => brapi.storage.local.onChanged.removeListener(h)
+  h => (brapi.storage.local.onChanged || brapi.storage.onChanged).addListener(h),
+  h => (brapi.storage.local.onChanged || brapi.storage.onChanged).removeListener(h)
 ).pipe(
   rxjs.share()
 )
@@ -799,27 +799,27 @@ function playAudioHere(urlPromise, options, playbackState$) {
   let currentRate = options.rate != null ? options.rate : 1
   const applyRate = rate => {
     currentRate = rate != null ? rate : 1
+    options.rate = currentRate
     const effectiveRate = currentRate * (options.rateAdjust || 1)
     audio.defaultPlaybackRate = effectiveRate
     audio.playbackRate = effectiveRate
   }
   const applyVolume = vol => {
-    audio.volume = vol != null ? Math.max(0, Math.min(1, Number(vol))) : 1
+    const v = vol != null ? Math.max(0, Math.min(1, Number(vol))) : 1
+    options.volume = v
+    audio.volume = v
   }
   const voiceKey = "rate" + (options.voice?.voiceName || "")
   const liveSettings$ = rxjs.merge(
     observeSetting(voiceKey).pipe(
-      rxjs.skip(1),
       rxjs.tap(r => { if (r != null) applyRate(r) })
     ),
     ...(voiceKey !== "rate" ? [
       observeSetting("rate").pipe(
-        rxjs.skip(1),
         rxjs.tap(r => { if (r != null) applyRate(r) })
       )
     ] : []),
     observeSetting("volume").pipe(
-      rxjs.skip(1),
       rxjs.tap(v => { if (v != null) applyVolume(v) })
     )
   ).pipe(rxjs.ignoreElements())
