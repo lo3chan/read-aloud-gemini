@@ -111,8 +111,11 @@
     .then(() => {
       const slider = createSlider($("#rate").get(0), {
           onChange(value) {
-            const rate = Math.pow($("#rate").data("pow"), value)
-            updateSetting("rate" + $("#voices").val(), Number(rate.toFixed(3)))
+            const rate = Number(Math.pow($("#rate").data("pow"), value).toFixed(3))
+            const v = $("#voices").val() || ""
+            const patch = { rate }
+            if (v) patch["rate" + v] = rate
+            updateSettings(patch)
           }
         })
       $("#rate-edit-button")

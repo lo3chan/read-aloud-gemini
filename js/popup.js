@@ -200,10 +200,12 @@ domReady().then(async () => {
   $("#popup-volume-val").text(Math.round(Number(volume) * 100) + "%");
 
   $("#popup-rate").on("input change", async function() {
-    const val = Number($(this).val());
+    const val = Number(Number($(this).val()).toFixed(3));
     $("#popup-rate-val").text(val.toFixed(2) + "x");
     const curVoice = (await getSetting("voiceName")) || "";
-    await updateSetting("rate" + curVoice, Number(val.toFixed(3)));
+    const patch = { rate: val };
+    if (curVoice) patch["rate" + curVoice] = val;
+    await updateSettings(patch);
   });
 
   $("#popup-volume").on("input change", async function() {

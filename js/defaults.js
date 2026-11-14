@@ -806,14 +806,20 @@ function playAudioHere(urlPromise, options, playbackState$) {
   const applyVolume = vol => {
     audio.volume = vol != null ? Math.max(0, Math.min(1, Number(vol))) : 1
   }
+  const voiceKey = "rate" + (options.voice?.voiceName || "")
   const liveSettings$ = rxjs.merge(
-    observeSetting("rate" + (options.voice?.voiceName || "")).pipe(
+    observeSetting(voiceKey).pipe(
+      rxjs.skip(1),
       rxjs.tap(r => { if (r != null) applyRate(r) })
     ),
-    observeSetting("rate").pipe(
-      rxjs.tap(r => { if (r != null && !options.voice?.voiceName) applyRate(r) })
-    ),
+    ...(voiceKey !== "rate" ? [
+      observeSetting("rate").pipe(
+        rxjs.skip(1),
+        rxjs.tap(r => { if (r != null) applyRate(r) })
+      )
+    ] : []),
     observeSetting("volume").pipe(
+      rxjs.skip(1),
       rxjs.tap(v => { if (v != null) applyVolume(v) })
     )
   ).pipe(rxjs.ignoreElements())
@@ -850,6 +856,7 @@ function playAudioHere(urlPromise, options, playbackState$) {
                   try {
                     applyRate(currentRate)
                     await audio.play()
+                    applyRate(currentRate)
                     silenceTrack.start()
                   } catch (err) {
                     if (err instanceof DOMException) throw new Error(err.name || err.message)
