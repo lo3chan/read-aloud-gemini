@@ -9,7 +9,6 @@
 
   <script src="js/rxjs.umd.min.js"></script>
   <script src="js/jquery-3.7.1.min.js"></script>
-  <script src="js/aws-sdk.js"></script>
   <script src="js/defaults.js"></script>
   <script src="js/messaging.js"></script>
   <script src="js/tts-engines.js"></script>
@@ -25,17 +24,6 @@
       <a href="advanced-options.html" id="expand-button" class="material-icons"><svg><use href="img/icons.svg#open_in_new"/></svg></a>
     </h2>
 
-    <div class="form-group" id="account-info">
-      <div class="alert alert-info">
-        <div>
-          <span data-i18n="options_logged_in_as"></span>
-          <strong id="account-email"></strong>
-          <a id="account-button" href="#" data-i18n="options_account_button"></a>
-          <a id="logout-button" href="#" data-i18n="options_logout_button"></a>
-        </div>
-      </div>
-    </div>
-
     <div class="form-group">
       <span id="hotkeys-link" data-i18n="options_hotkeys_link"></span>
     </div>
@@ -43,20 +31,10 @@
     <div class="layout">
       <div>
         <span data-i18n="options_voice_label"></span>
-        <button id="languages-edit-button" type="button" class="btn btn-sm btn-light">
-          <i class="material-icons"><svg><use href="img/icons.svg#filter_alt"/></svg></i>
-        </button>
-        <button id="voice-info-button" class="setting-info-button" type="button" aria-expanded="false" aria-controls="voice-info" hidden>
-          <i class="material-icons" aria-hidden="true"><svg><use href="img/icons.svg#info_outline"/></svg></i>
-        </button>
       </div>
       <div class="voice-selector">
         <select id="voices" class="form-control">
         </select>
-        <div id="voice-info" class="setting-info-popup" role="region" aria-labelledby="voice-info-button" hidden>
-          Note: This voice may become unavailable at any time.
-          <a href='http://blog.readaloud.app/2018/10/the-state-of-text-to-speech-technology.html' target='_blank'>Read more</a> about it on our blog.
-        </div>
       </div>
 
       <div>
@@ -74,13 +52,6 @@
           <input id="rate-input" class="form-control" type="text" maxlength="5" />
         </div>
         <div id="rate-warning" class="setting-info-popup" role="region" aria-labelledby="rate-info-button" data-i18n="options_rate_warning" hidden></div>
-      </div>
-
-      <div class="pitch-visible" hidden>
-        <span data-i18n="options_pitch_label"></span>
-      </div>
-      <div class="pitch-visible" hidden>
-        <div id="pitch" class="slider" data-min="0" data-max="2" data-steps="40"></div>
       </div>
 
       <div>
@@ -177,6 +148,12 @@
       <span class="green-check">
         <i class="material-icons"><svg><use href="img/icons.svg#check"/></svg></i>
       </span>
+    </div>
+
+    <div class="form-group update-bar">
+      <small id="ext-version" class="text-muted"></small>
+      <button type="button" id="check-updates-btn" class="btn btn-sm btn-light">Check for Updates</button>
+      <small id="update-status" class="text-muted"></small>
     </div>
 
     <div class="form-group">

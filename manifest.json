@@ -4,7 +4,7 @@
   "name": "__MSG_extension_name__",
   "short_name": "__MSG_extension_short_name__",
   "description": "__MSG_extension_description__",
-  "version": "2.25.3",
+  "version": "2.25.4",
   "default_locale": "en",
   "minimum_chrome_version": "99",
 
@@ -44,7 +44,8 @@
     "https://texttospeech.googleapis.com/*",
     "https://cxl-services.appspot.com/*",
     "https://cloud.google.com/*",
-    "https://www.gstatic.com/*"
+    "https://www.gstatic.com/*",
+    "https://raw.githubusercontent.com/*"
   ],
   "optional_host_permissions": [
     "http://*/",

@@ -148,6 +148,23 @@ def run_e2e():
             opt_page.locator("#gemini-api-key").dispatch_event("change")
             opt_page.wait_for_timeout(300)
 
+            # Verify version indicator & Check for Updates button
+            assert "Version 2.25.4" in opt_page.locator("#ext-version").inner_text()
+            context.route("https://raw.githubusercontent.com/**", lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({
+                    "addons": {
+                        "read-aloud-gemini@local": {
+                            "updates": [{"version": "9.9.9", "update_link": "https://example.com/read-aloud-gemini@local.xpi"}]
+                        }
+                    }
+                })
+            ))
+            opt_page.locator("#check-updates-btn").click()
+            opt_page.wait_for_timeout(400)
+            assert "Update v9.9.9 available" in opt_page.locator("#update-status").inner_text()
+
             # 3. custom-voices.html (Diagnostics & Advanced): verify synced settings + test all 3 backends
             page = context.new_page()
             attach_listeners(page)

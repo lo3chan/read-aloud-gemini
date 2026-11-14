@@ -68,7 +68,6 @@
 
 
   domReadyPromise.then(() => {
-    initSettingInfoPopup("voice-info-button", "voice-info", "voices", "options_voice_information")
     initSettingInfoPopup("rate-info-button", "rate-warning", "rate", "options_rate_information")
   })
 
@@ -79,13 +78,8 @@
         .change(function() {
           var voiceName = $(this).val();
           if (voiceName == "@custom") brapi.tabs.create({url: "custom-voices.html"});
-          else if (voiceName == "@languages") brapi.tabs.create({url: "languages.html"});
           else updateSettings({voiceName})
         });
-      $("#languages-edit-button")
-        .click(function() {
-          brapi.tabs.create({url: "languages.html"});
-        })
     })
 
   const voicesPopulatedObservable = rxjs.combineLatest([
@@ -155,21 +149,6 @@
       document.getElementById("rate-warning").hidden = true
       document.getElementById("rate-info-button").setAttribute("aria-expanded", "false")
     })
-
-
-
-  //pitch
-  const pitchSliderPromise = domReadyPromise
-    .then(() => {
-      return createSlider($("#pitch").get(0), {
-          onChange(value) {
-            updateSettings({pitch: value})
-          }
-        })
-    })
-
-  rxjs.combineLatest([observeSetting("pitch"), pitchSliderPromise])
-    .subscribe(([pitch, slider]) => slider.setValue(pitch || defaults.pitch))
 
 
 
@@ -352,6 +331,48 @@
         })
         .catch(handleError);
     });
+
+    const manifest = brapi.runtime.getManifest();
+    const currentVersion = (manifest && manifest.version) || "0.0.0";
+    $("#ext-version").text("Version " + currentVersion);
+
+    function compareVersions(a, b) {
+      const pa = String(a).split(".").map(n => parseInt(n, 10) || 0);
+      const pb = String(b).split(".").map(n => parseInt(n, 10) || 0);
+      for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const diff = (pa[i] || 0) - (pb[i] || 0);
+        if (diff !== 0) return diff;
+      }
+      return 0;
+    }
+
+    $("#check-updates-btn").click(async () => {
+      const $btn = $("#check-updates-btn");
+      const $status = $("#update-status");
+      $btn.prop("disabled", true);
+      $status.text("Checking...");
+      try {
+        const res = await fetch("https://raw.githubusercontent.com/lo3chan/read-aloud-gemini/main/updates.json", {
+          cache: "no-store"
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        const addonId = (manifest.browser_specific_settings && manifest.browser_specific_settings.gecko && manifest.browser_specific_settings.gecko.id) || "read-aloud-gemini@local";
+        const updates = (data.addons && data.addons[addonId] && data.addons[addonId].updates) || [];
+        const latest = updates.slice().sort((x, y) => compareVersions(y.version, x.version))[0];
+        if (!latest || compareVersions(latest.version, currentVersion) <= 0) {
+          $status.text("Up to date (v" + currentVersion + ")");
+        } else {
+          $status.empty()
+            .append(document.createTextNode("Update v" + latest.version + " available: "))
+            .append($("<a>").attr("href", latest.update_link).attr("target", "_blank").text("Install Update"));
+        }
+      } catch (err) {
+        $status.text("Update check failed: " + err.message);
+      } finally {
+        $btn.prop("disabled", false);
+      }
+    });
   })
 
 
@@ -464,9 +485,6 @@
               })
               .catch(handleError);
             break;
-          case "#connect-phone":
-            location.href = "connect-phone.html"
-            break
         }
       })
     }
