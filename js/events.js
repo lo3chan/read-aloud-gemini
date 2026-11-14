@@ -571,7 +571,11 @@ async function createPlayerTab() {
     index: 0,
     active: false,
   })
-  await brapi.tabs.update(tab.id, {pinned: true})
+  try {
+    await brapi.tabs.update(tab.id, {pinned: true})
+  } catch (err) {
+    console.warn("tabs.update pinned unsupported:", err)
+  }
 }
 
 

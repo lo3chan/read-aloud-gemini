@@ -372,6 +372,7 @@ input[type=checkbox] + label {
     padding: 0.75rem;
   }
   .layout {
+    min-width: 0 !important;
     grid-template-columns: 1fr !important;
     gap: 6px 0 !important;
   }

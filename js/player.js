@@ -426,13 +426,29 @@ function playAudio(urlPromise, options, playbackState$) {
 }
 
 var requestAudioPlaybackPermission = lazy(async function() {
+  try {
+    await new Audio(brapi.runtime.getURL("sound/silence.mp3")).play()
+    return
+  } catch (err) {
+    // Autoplay blocked: prompt user on player tab
+  }
   const thisTab = await brapi.tabs.getCurrent()
-  const prevTab = await brapi.tabs.query({windowId: thisTab.windowId, active: true}).then(tabs => tabs[0])
-  await brapi.tabs.update(thisTab.id, {active: true})
+  if (!thisTab) {
+    $("#dialog-backdrop, #audio-playback-permission-dialog").show()
+    await new Audio(brapi.runtime.getURL("sound/silence.mp3")).play()
+    $("#dialog-backdrop, #audio-playback-permission-dialog").hide()
+    return
+  }
+  const prevTab = await brapi.tabs.query(thisTab.windowId != null ? {windowId: thisTab.windowId, active: true} : {active: true})
+    .then(tabs => tabs[0])
+    .catch(() => null)
+  if (!thisTab.active) await brapi.tabs.update(thisTab.id, {active: true}).catch(() => {})
   $("#dialog-backdrop, #audio-playback-permission-dialog").show()
   await new Audio(brapi.runtime.getURL("sound/silence.mp3")).play()
   $("#dialog-backdrop, #audio-playback-permission-dialog").hide()
-  await brapi.tabs.update(prevTab.id, {active: true})
+  if (prevTab && prevTab.id !== thisTab.id) {
+    await brapi.tabs.update(prevTab.id, {active: true}).catch(() => {})
+  }
 })
 
 // Commands are ordered even when RxJS cancels a pending asynchronous start.

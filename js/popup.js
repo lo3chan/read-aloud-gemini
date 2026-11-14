@@ -180,8 +180,11 @@ function handleError(err) {
           index: 0,
           active: false,
         })
-        brapi.tabs.update(tab.id, {pinned: true})
-          .catch(console.error)
+        try {
+          await brapi.tabs.update(tab.id, {pinned: true})
+        } catch (err) {
+          console.error(err)
+        }
       } catch (err) {
         handleError(err)
       }
