@@ -95,16 +95,20 @@ async function init() {
     document.body.style.setProperty("--playback-status-height", `${height}px`)
   }).observe(document.getElementById("reading-controls"));
   const footer = document.getElementById("footer")
-  // Return the former always-visible footer line to the reading pane.
-  document.body.style.setProperty("--footer-line-height", getComputedStyle(footer).lineHeight)
-  new ResizeObserver(() => {
-    const style = getComputedStyle(footer)
-    const height = style.display === "none" ? 0 : footer.getBoundingClientRect().height
-      + parseFloat(style.marginTop)
-    document.body.style.setProperty("--announcement-height", `${height}px`)
-  }).observe(footer)
+  if (footer) {
+    // Return the former always-visible footer line to the reading pane.
+    document.body.style.setProperty("--footer-line-height", getComputedStyle(footer).lineHeight)
+    new ResizeObserver(() => {
+      const style = getComputedStyle(footer)
+      const height = style.display === "none" ? 0 : footer.getBoundingClientRect().height
+        + parseFloat(style.marginTop)
+      document.body.style.setProperty("--announcement-height", `${height}px`)
+    }).observe(footer)
+  } else {
+    document.body.style.setProperty("--footer-line-height", "0px")
+    document.body.style.setProperty("--announcement-height", "0px")
+  }
   refreshSize();
-  checkAnnouncements();
 
   const {state} = await bgPageInvoke("getPlaybackState")
   if (state == "PAUSED" || state == "STOPPED") onPlay()

@@ -149,7 +149,7 @@ def run_e2e():
             opt_page.wait_for_timeout(300)
 
             # Verify version indicator & Check for Updates button
-            assert "Version 2.25.5" in opt_page.locator("#ext-version").inner_text()
+            assert "Version 2.25.6" in opt_page.locator("#ext-version").inner_text()
             context.route("https://raw.githubusercontent.com/**", lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
