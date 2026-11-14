@@ -189,3 +189,49 @@ test('records error telemetry and caps ring buffer at 100 entries', async () => 
   assert.equal(storage.geminiTelemetry[0].httpStatus, 429);
   assert.match(storage.geminiTelemetry[0].error, /Quota exceeded/);
 });
+
+test('portal backend retries without prompt and falls back to Standard voice on Vertex AI 400 safety block', async () => {
+  const requests = [];
+  const {engine, storage} = createEngineContext(
+    {
+      backend: 'portal',
+      model: 'gemini-3.1-flash-tts-preview',
+      languageCode: 'en-gb',
+      prompt: 'Speak with a natural, warm Scottish accent.'
+    },
+    async (url, options) => {
+      const body = JSON.parse(options.body);
+      requests.push({url, body});
+      if (body.voice.modelName) {
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({
+            error: {
+              code: 400,
+              message: "Cloud Text-to-Speech could not generate audio because the input text or prompt violates Vertex AI's usage guidelines. Support codes: 54702341"
+            }
+          })
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({audioContent: Buffer.from('ok-mp3').toString('base64')})
+      };
+    }
+  );
+  storage.gcpToken = 'portal-tok';
+
+  const voices = await engine.getVoices();
+  await engine.speak('Reader Mode.\n\n', {voice: voices[0]});
+
+  assert.equal(requests.length, 3);
+  assert.equal(requests[0].body.input.text, 'Reader Mode.');
+  assert.equal(requests[0].body.input.prompt, 'Speak with a natural, warm Scottish accent.');
+  assert.equal(requests[1].body.input.prompt, undefined);
+  assert.equal(requests[2].body.voice.modelName, undefined);
+  assert.equal(requests[2].body.voice.name, 'en-GB-Standard-A');
+  assert.equal(storage.geminiTelemetry[0].status, 'ok');
+  assert.equal(storage.geminiTelemetry[0].voice, 'en-GB-Standard-A');
+});

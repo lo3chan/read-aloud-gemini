@@ -159,9 +159,16 @@ function GeminiTtsEngine() {
 
   function buildCloudTtsRequest(text, creds, voiceName, options) {
     const basePrompt = (creds.prompt || "").trim();
-    const prompt = applyPitchInstruction(basePrompt, options?.pitch);
+    const prompt = creds.disableModelName ? "" : applyPitchInstruction(basePrompt, options?.pitch);
     const pitch = Number(options?.pitch != null ? (options.pitch - 1) * 20 : 0);
     const input = prompt ? {prompt, text} : {text};
+    const voice = {
+      languageCode: creds.languageCode || "en-gb",
+      name: voiceName || "Achernar"
+    };
+    if (!creds.disableModelName) {
+      voice.modelName = creds.model || GEMINI_DEFAULT_CONFIG.model;
+    }
     return {
       audioConfig: {
         audioEncoding: creds.audioEncoding || "MP3",
@@ -169,11 +176,7 @@ function GeminiTtsEngine() {
         speakingRate: 1.0
       },
       input,
-      voice: {
-        languageCode: creds.languageCode || "en-gb",
-        modelName: creds.model || GEMINI_DEFAULT_CONFIG.model,
-        name: voiceName || "Achernar"
-      }
+      voice
     };
   }
 
@@ -246,21 +249,93 @@ function GeminiTtsEngine() {
     });
   }
 
+  function isSafetyFilterError(err) {
+    return !!(err && err.httpStatus === 400 && /usage guidelines|safety|54702341/i.test(err.message || ""));
+  }
+
+  function pickFallbackCloudVoice(languageCode) {
+    const lang = String(languageCode || "en-gb").toLowerCase();
+    if (lang.startsWith("en-us")) return {languageCode: "en-US", name: "en-US-Standard-C"};
+    if (lang.startsWith("en-au")) return {languageCode: "en-AU", name: "en-AU-Standard-A"};
+    return {languageCode: "en-GB", name: "en-GB-Standard-A"};
+  }
+
+  function createSilentWavResult() {
+    const pcm = new Uint8Array(Math.floor(24000 * 2 * 0.15));
+    const wavBytes = pcmToWavBytes(pcm, 24000, 1, 16);
+    const blob = new Blob([wavBytes], {type: "audio/wav"});
+    return {
+      httpStatus: 200,
+      mimeType: "audio/wav",
+      audioBytes: wavBytes.byteLength,
+      url: URL.createObjectURL(blob)
+    };
+  }
+
+  async function runBackendSynthesis(cleanText, creds, voiceName, model, options) {
+    if (creds.backend === "cloud-tts") {
+      return callCloudTts(cleanText, creds, voiceName, options);
+    } else if (creds.backend === "portal") {
+      return callPortalTts(cleanText, creds, voiceName, options);
+    }
+    return callGeminiApi(cleanText, creds, voiceName, model, options);
+  }
+
   async function synthesizeWithTelemetry(text, creds, voiceName, options) {
     const start = Date.now();
+    const cleanText = String(text || "").trim() || String(text || "");
     const model = creds.model || GEMINI_DEFAULT_CONFIG.model;
     const languageCode = creds.languageCode || "en-gb";
     const prompt = creds.prompt || "";
     let httpStatus = null;
+    let usedVoice = voiceName;
+    let usedModel = model;
+    let fallbackNote = null;
 
     try {
       let result;
-      if (creds.backend === "cloud-tts") {
-        result = await callCloudTts(text, creds, voiceName, options);
-      } else if (creds.backend === "portal") {
-        result = await callPortalTts(text, creds, voiceName, options);
-      } else {
-        result = await callGeminiApi(text, creds, voiceName, model, options);
+      try {
+        result = await runBackendSynthesis(cleanText, creds, voiceName, model, options);
+      } catch (firstErr) {
+        if (!isSafetyFilterError(firstErr)) throw firstErr;
+
+        if ((creds.prompt || "").trim()) {
+          try {
+            result = await runBackendSynthesis(
+              cleanText,
+              {...creds, prompt: ""},
+              voiceName,
+              model,
+              {...options, pitch: 1}
+            );
+            fallbackNote = "Retried without prompt after Vertex AI 400 filter";
+          } catch (noPromptErr) {
+            if (!isSafetyFilterError(noPromptErr)) throw noPromptErr;
+          }
+        }
+
+        if (!result && (creds.backend === "portal" || creds.backend === "cloud-tts")) {
+          const fb = pickFallbackCloudVoice(languageCode);
+          try {
+            result = await runBackendSynthesis(
+              cleanText,
+              {...creds, prompt: "", languageCode: fb.languageCode, disableModelName: true},
+              fb.name,
+              model,
+              {...options, pitch: 1}
+            );
+            usedVoice = fb.name;
+            usedModel = "standard-fallback";
+            fallbackNote = "Used Cloud Standard fallback after Vertex AI 400 filter";
+          } catch (fbErr) {
+            if (!isSafetyFilterError(fbErr)) throw fbErr;
+          }
+        }
+
+        if (!result) {
+          result = createSilentWavResult();
+          fallbackNote = "Skipped chunk after Vertex AI 400 filter";
+        }
       }
       httpStatus = result.httpStatus;
       const durationMs = Date.now() - start;
@@ -268,25 +343,25 @@ function GeminiTtsEngine() {
       await recordTelemetry({
         status: "ok",
         backend: creds.backend,
-        model,
-        voice: voiceName,
+        model: usedModel,
+        voice: usedVoice,
         languageCode,
         prompt,
-        textLength: text.length,
-        textPreview: text.slice(0, 80),
+        textLength: cleanText.length,
+        textPreview: cleanText.slice(0, 80),
         durationMs,
         httpStatus,
         mimeType: result.mimeType,
         audioBytes: result.audioBytes,
-        error: null
+        error: fallbackNote
       });
 
       return {
         ...result,
         durationMs,
         backend: creds.backend,
-        model,
-        voice: voiceName
+        model: usedModel,
+        voice: usedVoice
       };
     } catch (err) {
       const durationMs = Date.now() - start;
