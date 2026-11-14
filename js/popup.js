@@ -214,6 +214,7 @@ domReady().then(async () => {
     const patch = { rate: val };
     if (curVoice) patch["rate" + curVoice] = val;
     await updateSettings(patch);
+    updateButtons().catch(() => {});
   });
 
   $("#popup-volume").on("input change", async function() {
@@ -462,7 +463,8 @@ function updatePlaybackStatus(state, speech) {
   const panel = document.getElementById("playback-status")
   panel.hidden = !active
   document.getElementById("reading-controls").hidden = !active
-  const estimate = playbackEstimate.update(state, speech, performance.now())
+  const currentRate = Number($("#popup-rate").val()) || speech?.rate || 1
+  const estimate = playbackEstimate.update(state, speech, performance.now(), currentRate)
   if (!active) {
     panel.open = false
     document.getElementById("toolbar").hidden = true
@@ -476,7 +478,7 @@ function updatePlaybackStatus(state, speech) {
   let progress = estimate ? new Intl.NumberFormat(uiLanguage, {style: "percent"}).format(estimate.percent / 100) : ""
   if (estimate?.seconds != null) {
     progress = estimate.seconds < 60 ? message("less_than_minute")
-      : message("minutes_left", new Intl.NumberFormat(uiLanguage).format(Math.ceil(estimate.seconds / 60)))
+      : message("minutes_left", new Intl.NumberFormat(uiLanguage).format(Math.max(1, Math.round(estimate.seconds / 60))))
   }
   if (state === "LOADING") progress = speech?.engine ? message("loading_engine", speech.engine) : message("loading")
   else if (state === "PAUSED") progress = message("paused") + (progress ? ` · ${progress}` : "")
@@ -490,6 +492,7 @@ function updatePlaybackStatus(state, speech) {
     message("detected_language", languageName(speech?.detectedLang)),
     speech?.voiceLanguages?.length ? message("reading_language", new Intl.ListFormat(uiLanguage).format(speech.voiceLanguages.map(languageName))) : null,
     message("voice", voice),
+    `Speed: ${currentRate.toFixed(2)}x`,
     speech?.voiceLocation ? message("processing", message(speech.voiceLocation)) : null,
   ].filter(Boolean).join("\n"))
 }

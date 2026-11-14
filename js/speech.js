@@ -63,6 +63,7 @@ function Speech(texts, options) {
       voiceLocation: "cloud",
       detectedLang: options.lang,
       voiceLanguages: getVoiceLanguages(options.voice),
+      rate: options.rate || 1,
       isRTL: /^(ar|az|dv|he|iw|ku|fa|ur)\b/.test(options.lang),
       engine: "Gemini"
     }

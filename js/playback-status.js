@@ -1,13 +1,15 @@
-// Estimate from observed text boundaries, excluding pauses, loading, and seeking.
+// Estimate remaining speaking time normalized to 1.0x base speed, scaling immediately with playback rate.
 function createPlaybackEstimate() {
-  let previous, baseline, elapsed = 0, seconds = null
-  return {update(state, speech, now) {
+  const DEFAULT_BASE_CPS = 15; // ~180 WPM at 1.0x
+  let previous, baseline, baseElapsed = 0, measuredBaseCps = null
+  return {update(state, speech, now, rate) {
     if (!speech || state === 'STOPPED') {
       previous = baseline = null
-      elapsed = 0
-      seconds = null
+      baseElapsed = 0
+      measuredBaseCps = null
       return null
     }
+    const activeRate = Math.max(0.25, Number(rate || speech.rate || 1) || 1)
     const texts = speech.texts || []
     const index = Math.max(0, speech.position?.index || 0)
     const total = texts.reduce((sum, text) => sum + text.length, 0)
@@ -15,21 +17,23 @@ function createPlaybackEstimate() {
     const key = `${speech.statusId}:${speech.navigationRevision}`
     if (!previous || previous.key !== key || read < previous.read || total !== previous.total) {
       baseline = null
-      elapsed = 0
-      seconds = null
+      baseElapsed = 0
+      measuredBaseCps = null
     } else {
-      if (state === 'PLAYING' && previous.state === 'PLAYING' && now - previous.now < 2000) elapsed += now - previous.now
+      if (state === 'PLAYING' && previous.state === 'PLAYING' && now - previous.now < 2000) {
+        baseElapsed += ((now - previous.now) / 1000) * activeRate
+      }
       if (read > previous.read) {
-        // Start at an observed boundary; opening the popup mid-chunk must not
-        // count the entire chunk against only a fraction of its speaking time.
-        if (!baseline) baseline = {read, elapsed}
-        else if (elapsed - baseline.elapsed >= 10000) {
-          const rate = (read - baseline.read) / ((elapsed - baseline.elapsed) / 1000)
-          seconds = rate > 0 ? (total - read) / rate : null
+        if (!baseline) baseline = {read, baseElapsed}
+        else if (baseElapsed - baseline.baseElapsed >= 5) {
+          const cps = (read - baseline.read) / (baseElapsed - baseline.baseElapsed)
+          if (cps > 0) measuredBaseCps = cps
         }
       }
     }
     previous = {key, read, total, now, state}
+    const baseCps = measuredBaseCps || DEFAULT_BASE_CPS
+    const seconds = total > read ? (total - read) / (baseCps * activeRate) : 0
     return {percent: total ? Math.min(100, Math.floor(100 * read / total)) : 0, seconds}
   }}
 }
