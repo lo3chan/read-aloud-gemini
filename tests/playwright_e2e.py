@@ -132,7 +132,7 @@ def run_e2e():
             assert "Gemini Achernar" in initial_voices, f"Base voice Gemini Achernar missing: {initial_voices}"
             assert "Gemini Kore" in initial_voices
             assert opt_page.locator("#gemini-backend").input_value() == "gemini-api"
-            assert opt_page.locator("#gemini-model").input_value() == "gemini-3.1-flash-tts-preview"
+            assert opt_page.locator("#gemini-model").input_value() == "gemini-3.8-flash-lite-tts"
             assert opt_page.locator("#gemini-lang").input_value() == "en-gb"
             assert "Scottish" in opt_page.locator("#gemini-prompt").input_value()
 
@@ -149,7 +149,7 @@ def run_e2e():
             opt_page.wait_for_timeout(300)
 
             # Verify version indicator & Check for Updates button
-            assert "Version 2.25.12" in opt_page.locator("#ext-version").inner_text()
+            assert "Version 2.25." in opt_page.locator("#ext-version").inner_text()
             context.route("https://raw.githubusercontent.com/**", lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
@@ -185,7 +185,7 @@ def run_e2e():
             page.locator("#gemini-test-btn").click()
             page.wait_for_timeout(400)
             assert len(cloud_requests) == 1
-            assert cloud_requests[0]["body"]["voice"]["modelName"] == "gemini-3.1-flash-tts-preview"
+            assert cloud_requests[0]["body"]["voice"]["modelName"] == "gemini-3.8-flash-lite-tts"
             assert cloud_requests[0]["body"]["voice"]["name"] == "Achernar"
             assert cloud_requests[0]["body"]["input"]["prompt"] == "Speak with a natural, warm Scottish accent."
 
@@ -199,6 +199,45 @@ def run_e2e():
             assert len(portal_requests) == 1
             assert "token=portal-test-token" in portal_requests[0]["url"]
 
+            # Test custom backend with compact MP3 synthesis
+            custom_requests = []
+            def handle_custom_tts(route):
+                body = json.loads(route.request.post_data or "{}")
+                custom_requests.append({"url": route.request.url, "body": body})
+                mp3_bytes = b"ID3\x03\x00\x00\x00\x00\x00\x00" + b"\xff\xfb\x90\x44" * 10
+                route.fulfill(
+                    status=200,
+                    content_type="audio/mpeg",
+                    body=mp3_bytes,
+                )
+            context.route("https://mock-custom-tts.example.com/**", handle_custom_tts)
+
+            page.locator("#gemini-backend").select_option("custom")
+            page.locator("#gemini-custom-url").fill("https://mock-custom-tts.example.com/v1/audio/speech")
+            page.locator("#gemini-save-btn").click()
+            page.wait_for_timeout(200)
+            page.locator("#gemini-test-btn").click()
+            page.wait_for_timeout(400)
+            assert len(custom_requests) == 1
+            assert custom_requests[0]["body"]["response_format"] == "mp3"
+            assert custom_requests[0]["body"]["model"] == "gemini-3.8-flash-lite-tts"
+
+            # Test fast-start first chunking in Speech via player.html
+            player_page = context.new_page()
+            player_page.goto(f"chrome-extension://{ext_id}/player.html", wait_until="domcontentloaded")
+            chunk_test = player_page.evaluate("""() => {
+                const sampleText = "This is the first opening sentence of a very long article that exceeds two hundred and twenty characters in total length so that the reader can experience immediate and ultra fast audio playback response without waiting for a large chunk to finish synthesizing.";
+                const sp = new Speech([sampleText], {voice: {voiceName: "Gemini Achernar"}});
+                const info = sp.getInfo();
+                return {
+                    firstLen: info.texts[0].length,
+                    totalChunks: info.texts.length
+                };
+            }""")
+            assert chunk_test["totalChunks"] > 1, "Long text should be broken into multiple chunks"
+            assert chunk_test["firstLen"] <= 200, f"Fast-start first chunk must be <= 200 chars, got {chunk_test['firstLen']}"
+            player_page.close()
+
             # Test 429 error telemetry & clear
             page.locator("#gemini-backend").select_option("gemini-api")
             simulate_429["active"] = True
@@ -206,7 +245,7 @@ def run_e2e():
             page.wait_for_selector("#gemini-error:visible", timeout=5000)
             assert "429: Quota exceeded" in page.locator("#gemini-error").inner_text()
             page.wait_for_timeout(300)
-            assert page.locator("#stat-total").inner_text() == "4"
+            assert page.locator("#stat-total").inner_text() == "5"
             page.locator("#telemetry-clear-btn").click()
             page.wait_for_timeout(200)
             assert page.locator("#stat-total").inner_text() == "0"

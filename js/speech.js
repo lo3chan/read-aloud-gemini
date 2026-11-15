@@ -32,6 +32,22 @@ function Speech(texts, options) {
   }
   this.gotoEnd = () => { navigationRevision++; cmd$.next({name: "gotoEnd"}) }
 
+  let onEndCallback = null
+  let pendingEnd = null
+  Object.defineProperty(this, "onEnd", {
+    get() {
+      return onEndCallback
+    },
+    set(fn) {
+      onEndCallback = fn
+      if (onEndCallback && pendingEnd) {
+        const { err } = pendingEnd
+        pendingEnd = null
+        onEndCallback(err)
+      }
+    }
+  })
+
   function pickEngine() {
     if (options.voice && isGeminiTts(options.voice)) return geminiTtsEngine;
     return geminiTtsEngine;
@@ -40,6 +56,17 @@ function Speech(texts, options) {
   function getChunks(text) {
     var punctuator = createPunctuator(options.lang);
     const maxLen = Math.max(100, Math.min(4000, Number(options.chunkSize) || 750));
+    if (text.length > 220) {
+      const firstPass = new CharBreaker(Math.min(200, maxLen), punctuator, Math.min(120, maxLen)).breakText(text);
+      const firstChunk = firstPass[0];
+      if (firstPass.length <= 1 || !firstChunk || firstChunk.length >= text.length) {
+        return firstPass;
+      }
+      const remainder = text.slice(firstChunk.length).trim();
+      if (!remainder) return [firstChunk];
+      const restChunks = new CharBreaker(maxLen, punctuator, Math.min(200, maxLen)).breakText(remainder).filter(Boolean);
+      return [firstChunk, ...restChunks];
+    }
     return new CharBreaker(maxLen, punctuator, Math.min(200, maxLen)).breakText(text);
   }
 
@@ -158,8 +185,8 @@ function Speech(texts, options) {
             if (nextText) {
               engine.prefetch(nextText, options)
               // A short next chunk may finish before its successor can load.
-              // Use a 100-character threshold.
-              if (nextText.length < 100) {
+              // Use a 300-character threshold.
+              if (nextText.length < 300) {
                 const followingText = texts[nextIndex + 1]
                 if (followingText) engine.prefetch(followingText, options)
               }
@@ -181,11 +208,21 @@ function Speech(texts, options) {
       }
     },
     complete: () => {
-      if (this.onEnd) this.onEnd()
+      isLoadingSubject.next(false)
+      if (onEndCallback) {
+        onEndCallback()
+      } else {
+        pendingEnd = { err: undefined }
+      }
     },
     error: err => {
+      isLoadingSubject.next(false)
       if (err.name != "CancellationException") {
-        if (this.onEnd) this.onEnd(err)
+        if (onEndCallback) {
+          onEndCallback(err)
+        } else {
+          pendingEnd = { err }
+        }
       }
     }
   })

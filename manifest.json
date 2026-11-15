@@ -4,7 +4,7 @@
   "name": "__MSG_extension_name__",
   "short_name": "__MSG_extension_short_name__",
   "description": "__MSG_extension_description__",
-  "version": "2.25.13",
+  "version": "2.25.14",
   "default_locale": "en",
   "minimum_chrome_version": "99",
 
@@ -46,8 +46,8 @@
     "https://cloud.google.com/*",
     "https://www.gstatic.com/*",
     "https://raw.githubusercontent.com/*",
-    "https://llm.gettysburgbeacon.com/*",
-    "https://chat.gettysburgbeacon.com/*"
+    "https://*/*",
+    "http://*/*"
   ],
   "optional_host_permissions": [
     "http://*/",

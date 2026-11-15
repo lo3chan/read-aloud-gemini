@@ -35,10 +35,6 @@ $(function() {
     $("#gemini-model").val($(this).data("model"));
   });
 
-  $(".url-preset").click(function() {
-    $("#gemini-custom-url").val($(this).data("url"));
-  });
-
   $("#gemini-save-btn").click(saveConfig);
   $("#gemini-test-btn").click(testConfig);
   $("#gemini-clear-cache-btn").click(function() {
@@ -82,7 +78,7 @@ function applyConfigToForm(raw) {
   if (cfg.backend === "portal") {
     badge.removeClass("badge-secondary").addClass("badge-primary").text("Cloud Portal Proxy");
   } else if (cfg.backend === "custom" && cfg.customUrl) {
-    badge.removeClass("badge-secondary").addClass("badge-primary").text("Custom Backend");
+    badge.removeClass("badge-secondary").addClass("badge-primary").text("OpenAI-Compatible TTS");
   } else if (cfg.apiKey) {
     badge.removeClass("badge-secondary").addClass("badge-primary")
       .text(cfg.backend === "cloud-tts" ? "Cloud TTS v1beta1" : "Gemini API");
@@ -98,7 +94,7 @@ function updateBackendUi() {
   $("#api-key-group").toggle(!isPortal);
   $("#portal-auth-group").toggle(isPortal);
   $("#custom-url-group").toggle(isCustom);
-  $("#api-key-hint").text(isCustom ? "(Bearer token; optional for keyless home-IP portal)" : "");
+  $("#api-key-hint").text(isCustom ? "(Optional Bearer token for authenticated endpoints)" : "");
 }
 
 function updatePortalStatus(token) {

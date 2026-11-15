@@ -36,6 +36,8 @@ function createEngineContext(creds, fetchImpl, initialTelemetry = []) {
     },
     fetch: fetchImpl,
     playAudio: promise => promise,
+    setTimeout,
+    clearTimeout,
   });
   vm.runInContext(engineSource, context);
   return {
@@ -242,9 +244,10 @@ test('custom backend sends /v1/audio/speech with optional Bearer token, instruct
   const {engine, storage, getCreatedBlob} = createEngineContext(
     {
       backend: 'custom',
-      customUrl: 'https://llm.gettysburgbeacon.com',
-      apiKey: 'llm_test_key',
-      model: 'gemini-3.1-flash-tts-preview',
+      customUrl: 'https://tts.example.com',
+      apiKey: 'test_bearer_token',
+      model: 'gemini-3.8-flash-lite-tts',
+      audioEncoding: 'LINEAR16',
       prompt: 'Speak warmly.'
     },
     async (url, options) => {
@@ -269,10 +272,10 @@ test('custom backend sends /v1/audio/speech with optional Bearer token, instruct
   assert.equal(url, 'blob:gemini-test');
   assert.equal(getCreatedBlob().type, 'audio/wav');
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].url, 'https://llm.gettysburgbeacon.com/v1/audio/speech');
-  assert.equal(requests[0].headers.Authorization, 'Bearer llm_test_key');
+  assert.equal(requests[0].url, 'https://tts.example.com/v1/audio/speech');
+  assert.equal(requests[0].headers.Authorization, 'Bearer test_bearer_token');
   assert.deepEqual(requests[0].body, {
-    model: 'gemini-3.1-flash-tts-preview',
+    model: 'gemini-3.8-flash-lite-tts',
     input: 'Hello custom backend!',
     voice: 'Achernar',
     instructions: 'Speak warmly.',
@@ -282,16 +285,113 @@ test('custom backend sends /v1/audio/speech with optional Bearer token, instruct
   assert.equal(storage.geminiTelemetry[0].backend, 'custom');
   assert.equal(storage.geminiTelemetry[0].mimeType, 'audio/wav');
 
-  // Keyless request (e.g., chat.gettysburgbeacon.com from home IP) omits Authorization header
+  // Keyless request (e.g., local server or internal IP) omits Authorization header and defaults to mp3
   storage.geminiCreds = {
     backend: 'custom',
-    customUrl: 'https://chat.gettysburgbeacon.com/v1/audio/speech',
+    customUrl: 'https://local-tts.example.com/v1/audio/speech',
     apiKey: '',
-    model: 'gemini-3.1-flash-tts-preview',
+    model: 'gemini-3.8-flash-lite-tts',
+    audioEncoding: 'MP3',
     prompt: ''
   };
   await engine.speak('Keyless test!', {voice: achernar});
   assert.equal(requests.length, 2);
-  assert.equal(requests[1].url, 'https://chat.gettysburgbeacon.com/v1/audio/speech');
+  assert.equal(requests[1].url, 'https://local-tts.example.com/v1/audio/speech');
   assert.equal(requests[1].headers.Authorization, undefined);
+  assert.equal(requests[1].body.response_format, 'mp3');
+});
+
+test('buildCustomSpeechRequest maps encodings to response_format and defaults model to gemini-3.8-flash-lite-tts', () => {
+  const {engine} = createEngineContext({}, async () => ({}));
+  assert.equal(engine.defaultConfig.model, 'gemini-3.8-flash-lite-tts');
+
+  // Default / MP3 -> mp3
+  const reqDefault = engine.buildCustomSpeechRequest('Test text', {customUrl: 'https://tts.example.com'}, 'Achernar');
+  assert.equal(reqDefault.response_format, 'mp3');
+  assert.equal(reqDefault.model, 'gemini-3.8-flash-lite-tts');
+
+  const reqMp3 = engine.buildCustomSpeechRequest('Test text', {audioEncoding: 'MP3'}, 'Achernar');
+  assert.equal(reqMp3.response_format, 'mp3');
+
+  // OGG_OPUS -> opus
+  const reqOpus = engine.buildCustomSpeechRequest('Test text', {audioEncoding: 'OGG_OPUS'}, 'Achernar');
+  assert.equal(reqOpus.response_format, 'opus');
+
+  // LINEAR16 -> wav
+  const reqWav = engine.buildCustomSpeechRequest('Test text', {audioEncoding: 'LINEAR16'}, 'Achernar');
+  assert.equal(reqWav.response_format, 'wav');
+});
+
+test('runBackendSynthesis performs single transient retry on 429, 502, 503, or network error', async () => {
+  let callCount = 0;
+  const fakeWav = Uint8Array.from([0x52, 0x49, 0x46, 0x46]).buffer;
+  const {engine, storage} = createEngineContext(
+    {
+      backend: 'custom',
+      customUrl: 'https://tts.example.com',
+      audioEncoding: 'LINEAR16'
+    },
+    async () => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          ok: false,
+          status: 503,
+          text: async () => 'Service Temporarily Unavailable'
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        headers: {get: () => 'audio/wav'},
+        arrayBuffer: async () => fakeWav
+      };
+    }
+  );
+
+  const voices = await engine.getVoices();
+  const url = await engine.speak('Retry please', {voice: voices[0]});
+  assert.equal(url, 'blob:gemini-test');
+  assert.equal(callCount, 2);
+  assert.equal(storage.geminiTelemetry[0].status, 'ok');
+  assert.equal(storage.geminiTelemetry[0].httpStatus, 200);
+});
+
+test('custom backend retries without prompt on 400, 502, or 503 and logs fallback telemetry', async () => {
+  const requests = [];
+  const fakeWav = Uint8Array.from([0x52, 0x49, 0x46, 0x46]).buffer;
+  const {engine, storage} = createEngineContext(
+    {
+      backend: 'custom',
+      customUrl: 'https://tts.example.com',
+      audioEncoding: 'LINEAR16',
+      prompt: 'Special accent'
+    },
+    async (url, options) => {
+      const body = JSON.parse(options.body);
+      requests.push(body);
+      if (body.instructions) {
+        return {
+          ok: false,
+          status: 400,
+          text: async () => JSON.stringify({error: {message: 'Instructions not supported'}})
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        headers: {get: () => 'audio/wav'},
+        arrayBuffer: async () => fakeWav
+      };
+    }
+  );
+
+  const voices = await engine.getVoices();
+  const url = await engine.speak('Test prompt fallback', {voice: voices[0]});
+  assert.equal(url, 'blob:gemini-test');
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].instructions, 'Special accent');
+  assert.equal(requests[1].instructions, undefined);
+  assert.equal(storage.geminiTelemetry[0].status, 'ok');
+  assert.ok(storage.geminiTelemetry[0].error.includes('Retried without prompt'));
 });

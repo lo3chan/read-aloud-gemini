@@ -198,7 +198,6 @@ function Doc(source, onEnd) {
     }
     if (activeSpeech) return;
     activeSpeech = await getSpeech(texts);
-    await wait(playbackState, "resumed")
     activeSpeech.onEnd = function(err) {
       if (err) {
         if (onEnd) onEnd(err);
@@ -212,6 +211,7 @@ function Doc(source, onEnd) {
           })
       }
     };
+    await wait(playbackState, "resumed")
     if (rewinded) await activeSpeech.gotoEnd();
     return activeSpeech.play();
   }

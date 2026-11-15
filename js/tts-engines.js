@@ -57,7 +57,7 @@ const GEMINI_DEFAULT_CONFIG = {
   backend: "gemini-api",
   customUrl: "",
   apiKey: "",
-  model: "gemini-3.1-flash-tts-preview",
+  model: "gemini-3.8-flash-lite-tts",
   languageCode: "en-gb",
   audioEncoding: "MP3",
   chunkSize: 750,
@@ -252,6 +252,14 @@ function GeminiTtsEngine() {
     return !!(err && err.httpStatus === 400 && /usage guidelines|safety|54702341/i.test(err.message || ""));
   }
 
+  function canRetryWithoutPrompt(err, creds) {
+    if (isSafetyFilterError(err)) return true;
+    if (creds && creds.backend === "custom" && err && (err.httpStatus === 400 || err.httpStatus === 502 || err.httpStatus === 503)) {
+      return true;
+    }
+    return false;
+  }
+
   function pickFallbackCloudVoice(languageCode) {
     const lang = String(languageCode || "en-gb").toLowerCase();
     if (lang.startsWith("en-us")) return {languageCode: "en-US", name: "en-US-Standard-C"};
@@ -272,14 +280,28 @@ function GeminiTtsEngine() {
   }
 
   async function runBackendSynthesis(cleanText, creds, voiceName, model, options) {
-    if (creds.backend === "cloud-tts") {
-      return callCloudTts(cleanText, creds, voiceName, options);
-    } else if (creds.backend === "portal") {
-      return callPortalTts(cleanText, creds, voiceName, options);
-    } else if (creds.backend === "custom") {
-      return callCustomBackend(cleanText, creds, voiceName, model, options);
+    async function execute() {
+      if (creds.backend === "cloud-tts") {
+        return callCloudTts(cleanText, creds, voiceName, options);
+      } else if (creds.backend === "portal") {
+        return callPortalTts(cleanText, creds, voiceName, options);
+      } else if (creds.backend === "custom") {
+        return callCustomBackend(cleanText, creds, voiceName, model, options);
+      }
+      return callGeminiApi(cleanText, creds, voiceName, model, options);
     }
-    return callGeminiApi(cleanText, creds, voiceName, model, options);
+
+    try {
+      return await execute();
+    } catch (err) {
+      const isTransientStatus = err && (err.httpStatus === 429 || err.httpStatus === 502 || err.httpStatus === 503);
+      const isNetworkError = err && (!err.httpStatus || err.name === "TypeError" || /network|fetch|timeout|abort|connection/i.test(err.message || ""));
+      if (isTransientStatus || isNetworkError) {
+        await new Promise(resolve => setTimeout(resolve, 600));
+        return await execute();
+      }
+      throw err;
+    }
   }
 
   async function synthesizeWithTelemetry(text, creds, voiceName, options) {
@@ -298,7 +320,7 @@ function GeminiTtsEngine() {
       try {
         result = await runBackendSynthesis(cleanText, creds, voiceName, model, options);
       } catch (firstErr) {
-        if (!isSafetyFilterError(firstErr)) throw firstErr;
+        if (!canRetryWithoutPrompt(firstErr, creds)) throw firstErr;
 
         if ((creds.prompt || "").trim()) {
           try {
@@ -309,9 +331,11 @@ function GeminiTtsEngine() {
               model,
               {...options, pitch: 1}
             );
-            fallbackNote = "Retried without prompt after Vertex AI 400 filter";
+            fallbackNote = creds.backend === "custom"
+              ? `Retried without prompt after custom backend HTTP ${firstErr.httpStatus || 400} error`
+              : "Retried without prompt after Vertex AI 400 filter";
           } catch (noPromptErr) {
-            if (!isSafetyFilterError(noPromptErr)) throw noPromptErr;
+            if (!canRetryWithoutPrompt(noPromptErr, creds)) throw noPromptErr;
           }
         }
 
@@ -335,7 +359,9 @@ function GeminiTtsEngine() {
 
         if (!result) {
           result = createSilentWavResult();
-          fallbackNote = "Skipped chunk after Vertex AI 400 filter";
+          fallbackNote = creds.backend === "custom"
+            ? "Skipped chunk after custom backend error"
+            : "Skipped chunk after Vertex AI 400 filter";
         }
       }
       httpStatus = result.httpStatus;
@@ -514,13 +540,20 @@ function GeminiTtsEngine() {
   }
 
   function buildCustomSpeechRequest(text, creds, voiceName, model) {
+    let format = "mp3";
+    const enc = (creds && creds.audioEncoding) ? String(creds.audioEncoding).toUpperCase() : "";
+    if (enc === "LINEAR16") {
+      format = "wav";
+    } else if (enc === "OGG_OPUS") {
+      format = "opus";
+    }
     const body = {
-      model: model || creds.model || GEMINI_DEFAULT_CONFIG.model || "tts",
+      model: model || (creds && creds.model) || GEMINI_DEFAULT_CONFIG.model || "tts",
       input: text,
       voice: voiceName || "Achernar",
-      response_format: "wav"
+      response_format: format
     };
-    const prompt = (creds.prompt || "").trim();
+    const prompt = ((creds && creds.prompt) || "").trim();
     if (prompt) {
       body.instructions = prompt;
     }
