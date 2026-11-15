@@ -509,3 +509,40 @@ test('strips trailing C2PA RIFF chunks from audio/wav responses in gemini-api an
     assert.deepEqual(out.subarray(44), pcmSamples);
   }
 });
+
+test('google-translate backend works without API key and splits text into <=200 char requests', async () => {
+  const urls = [];
+  const {engine, storage, getCreatedBlob} = createEngineContext(
+    {
+      backend: 'google-translate',
+      languageCode: 'en-gb',
+      apiKey: ''
+    },
+    async (url) => {
+      urls.push(url);
+      const fakeMp3 = Uint8Array.from([0xff, 0xfb, 0x90, 0x44]);
+      return {
+        ok: true,
+        status: 200,
+        headers: {get: () => 'audio/mpeg'},
+        arrayBuffer: async () => fakeMp3.buffer
+      };
+    }
+  );
+
+  const voices = await engine.getVoices();
+  const longText = 'word '.repeat(60).trim(); // 299 chars -> 2 chunks <= 200 chars
+  await engine.speak(longText, {voice: voices[0]});
+
+  assert.equal(urls.length, 2);
+  for (const u of urls) {
+    const parsed = new URL(u);
+    assert.equal(parsed.origin + parsed.pathname, 'https://translate.google.com/translate_tts');
+    assert.equal(parsed.searchParams.get('tl'), 'en-gb');
+    assert.ok(parsed.searchParams.get('q').length <= 200);
+  }
+  assert.equal(getCreatedBlob().type, 'audio/mpeg');
+  assert.equal(getCreatedBlob().parts[0].byteLength, 8);
+  assert.equal(storage.geminiTelemetry[0].status, 'ok');
+  assert.equal(storage.geminiTelemetry[0].backend, 'google-translate');
+});

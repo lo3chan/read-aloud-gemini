@@ -77,6 +77,8 @@ function applyConfigToForm(raw) {
   const badge = $("#active-backend-badge");
   if (cfg.backend === "portal") {
     badge.removeClass("badge-secondary").addClass("badge-primary").text("Cloud Portal Proxy");
+  } else if (cfg.backend === "google-translate") {
+    badge.removeClass("badge-secondary").addClass("badge-primary").text("Google Translate");
   } else if (cfg.backend === "custom" && cfg.customUrl) {
     badge.removeClass("badge-secondary").addClass("badge-primary").text("OpenAI-Compatible TTS");
   } else if (cfg.apiKey) {
@@ -91,7 +93,8 @@ function updateBackendUi() {
   const backend = $("#gemini-backend").val();
   const isPortal = backend === "portal";
   const isCustom = backend === "custom";
-  $("#api-key-group").toggle(!isPortal);
+  const isTranslate = backend === "google-translate";
+  $("#api-key-group").toggle(!isPortal && !isTranslate);
   $("#portal-auth-group").toggle(isPortal);
   $("#custom-url-group").toggle(isCustom);
   $("#api-key-hint").text(isCustom ? "(Optional Bearer token for authenticated endpoints)" : "");
@@ -135,7 +138,7 @@ async function saveConfig() {
         showError("Custom Backend URL is required.");
         return;
       }
-    } else if (geminiCreds.backend !== "portal" && !geminiCreds.apiKey) {
+    } else if (geminiCreds.backend !== "portal" && geminiCreds.backend !== "google-translate" && !geminiCreds.apiKey) {
       await clearSettings(["geminiCreds"]);
       applyConfigToForm(null);
       showSuccess("Gemini TTS disabled (API key cleared).");

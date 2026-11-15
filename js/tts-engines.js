@@ -98,7 +98,7 @@ function GeminiTtsEngine() {
       if (!creds.customUrl) {
         throw new Error("Backend URL is required for the custom backend.");
       }
-    } else if (creds.backend !== "portal" && !creds.apiKey) {
+    } else if (creds.backend !== "portal" && creds.backend !== "google-translate" && !creds.apiKey) {
       throw new Error("API key is required for this backend.");
     }
     const voice = voiceName || "Achernar";
@@ -132,7 +132,7 @@ function GeminiTtsEngine() {
 
   function normalizeCreds(raw) {
     const src = raw || {};
-    const backend = (src.backend === "cloud-tts" || src.backend === "portal" || src.backend === "custom")
+    const backend = (src.backend === "cloud-tts" || src.backend === "portal" || src.backend === "google-translate" || src.backend === "custom")
       ? src.backend
       : "gemini-api";
     const prompt = src.prompt != null
@@ -206,7 +206,7 @@ function GeminiTtsEngine() {
         if (!creds.customUrl) {
           throw new Error(JSON.stringify({code: "error_gemini_not_configured"}));
         }
-      } else if (creds.backend !== "portal" && !creds.apiKey) {
+      } else if (creds.backend !== "portal" && creds.backend !== "google-translate" && !creds.apiKey) {
         throw new Error(JSON.stringify({code: "error_gemini_not_configured"}));
       }
       const voiceName = resolveVoiceName(options.voice);
@@ -287,6 +287,8 @@ function GeminiTtsEngine() {
         return callCloudTts(cleanText, creds, voiceName, options);
       } else if (creds.backend === "portal") {
         return callPortalTts(cleanText, creds, voiceName, options);
+      } else if (creds.backend === "google-translate") {
+        return callGoogleTranslateTts(cleanText, creds, options);
       } else if (creds.backend === "custom") {
         return callCustomBackend(cleanText, creds, voiceName, model, options);
       }
@@ -556,6 +558,64 @@ function GeminiTtsEngine() {
       httpStatus: res.status,
       mimeType: outMime,
       audioBytes: finalBytes.byteLength,
+      url: URL.createObjectURL(blob)
+    };
+  }
+
+  function splitTranslateChunks(text, maxLen = 200) {
+    const clean = String(text || "").trim();
+    if (!clean) return [];
+    if (clean.length <= maxLen) return [clean];
+    const chunks = [];
+    let rest = clean;
+    while (rest.length > maxLen) {
+      let cut = rest.lastIndexOf(" ", maxLen);
+      if (cut < Math.floor(maxLen * 0.4)) cut = maxLen;
+      chunks.push(rest.slice(0, cut).trim());
+      rest = rest.slice(cut).trim();
+    }
+    if (rest) chunks.push(rest);
+    return chunks;
+  }
+
+  async function callGoogleTranslateTts(text, creds, options) {
+    const tl = String(creds.languageCode || options.lang || "en").trim() || "en";
+    const parts = splitTranslateChunks(text, 200);
+    const buffers = [];
+    let totalBytes = 0;
+    let lastStatus = 200;
+
+    for (const part of parts) {
+      const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${encodeURIComponent(tl)}&client=tw-ob&q=${encodeURIComponent(part)}`;
+      const res = await fetch(url);
+      lastStatus = res.status;
+      if (!res.ok) {
+        const err = new Error(`Google Translate TTS error (HTTP ${res.status})`);
+        err.httpStatus = res.status;
+        throw err;
+      }
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      if (bytes.byteLength === 0) {
+        const err = new Error("Google Translate TTS returned empty audio");
+        err.httpStatus = res.status;
+        throw err;
+      }
+      buffers.push(bytes);
+      totalBytes += bytes.byteLength;
+    }
+
+    const merged = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const buf of buffers) {
+      merged.set(buf, offset);
+      offset += buf.byteLength;
+    }
+
+    const blob = new Blob([merged], {type: "audio/mpeg"});
+    return {
+      httpStatus: lastStatus,
+      mimeType: "audio/mpeg",
+      audioBytes: merged.byteLength,
       url: URL.createObjectURL(blob)
     };
   }

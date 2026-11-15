@@ -319,8 +319,9 @@
     $("#gemini-prompt").val(cfg.prompt != null ? cfg.prompt : defaults.prompt);
     const isPortal = backend === "portal";
     const isCustom = backend === "custom";
+    const isTranslate = backend === "google-translate";
     $("#gemini-custom-url-label, #gemini-custom-url-control").toggle(isCustom);
-    $("#gemini-key-label, #gemini-key-control").toggle(!isPortal);
+    $("#gemini-key-label, #gemini-key-control").toggle(!isPortal && !isTranslate);
     $("#portal-auth-label, #portal-auth-control").toggle(isPortal);
     $("#portal-token-status").text(gcpToken ? "Authorized" : "Not authorized");
   });
