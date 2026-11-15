@@ -211,6 +211,7 @@ function GeminiTtsEngine() {
       }
       const voiceName = resolveVoiceName(options.voice);
       const cacheKey = JSON.stringify([
+        "v2",
         text,
         creds.backend,
         creds.customUrl,
@@ -471,9 +472,12 @@ function GeminiTtsEngine() {
       mimeType = "audio/ogg;codecs=opus";
     } else if (encoding === "LINEAR16") {
       mimeType = "audio/wav";
-      if (!hasRiffHeader(rawBytes)) {
-        finalBytes = pcmToWavBytes(rawBytes, 24000, 1, 16);
-      }
+      finalBytes = hasRiffHeader(rawBytes)
+        ? sanitizeWavBytes(rawBytes)
+        : pcmToWavBytes(rawBytes, 24000, 1, 16);
+    } else if (hasRiffHeader(rawBytes)) {
+      mimeType = "audio/wav";
+      finalBytes = sanitizeWavBytes(rawBytes);
     }
     const blob = new Blob([finalBytes], {type: mimeType});
     return {
@@ -538,7 +542,10 @@ function GeminiTtsEngine() {
     let finalBytes = rawBytes;
     let outMime = srcMime;
 
-    if (/audio\/(l16|pcm)/i.test(srcMime) || (!/wav|mpeg|mp3|ogg|opus/i.test(srcMime) && !hasRiffHeader(rawBytes))) {
+    if (hasRiffHeader(rawBytes)) {
+      finalBytes = sanitizeWavBytes(rawBytes);
+      outMime = "audio/wav";
+    } else if (/audio\/(l16|pcm)/i.test(srcMime) || !/wav|mpeg|mp3|ogg|opus/i.test(srcMime)) {
       const sampleRate = parsePcmSampleRate(srcMime);
       finalBytes = pcmToWavBytes(rawBytes, sampleRate, 1, 16);
       outMime = "audio/wav";
@@ -617,11 +624,17 @@ function GeminiTtsEngine() {
       throw err;
     }
     const mimeType = (res.headers.get("content-type") || "audio/wav").split(";")[0].trim();
-    const blob = new Blob([buf], {type: mimeType});
+    let finalBytes = new Uint8Array(buf);
+    let outMime = mimeType;
+    if ((/wav/i.test(mimeType) || hasRiffHeader(finalBytes)) && hasRiffHeader(finalBytes)) {
+      finalBytes = sanitizeWavBytes(finalBytes);
+      outMime = "audio/wav";
+    }
+    const blob = new Blob([finalBytes], {type: outMime});
     return {
       httpStatus: res.status,
-      mimeType,
-      audioBytes: buf.byteLength,
+      mimeType: outMime,
+      audioBytes: finalBytes.byteLength,
       url: URL.createObjectURL(blob)
     };
   }
@@ -651,7 +664,49 @@ function parsePcmSampleRate(mimeType) {
 }
 
 function hasRiffHeader(bytes) {
-  return bytes.length >= 4 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46;
+  return bytes.length >= 12
+    && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+    && bytes[8] === 0x57 && bytes[9] === 0x41 && bytes[10] === 0x56 && bytes[11] === 0x45;
+}
+
+function sanitizeWavBytes(rawBytes) {
+  if (!hasRiffHeader(rawBytes) || rawBytes.byteLength < 44) return rawBytes;
+  const view = new DataView(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength);
+  let channels = 1;
+  let sampleRate = 24000;
+  let bitsPerSample = 16;
+  let dataStart = -1;
+  let dataEnd = -1;
+  let pos = 12;
+  while (pos + 8 <= rawBytes.byteLength) {
+    const c0 = rawBytes[pos];
+    const c1 = rawBytes[pos + 1];
+    const c2 = rawBytes[pos + 2];
+    const c3 = rawBytes[pos + 3];
+    const csize = view.getUint32(pos + 4, true);
+    const chunkStart = pos + 8;
+    const chunkEnd = Math.min(rawBytes.byteLength, chunkStart + csize);
+    // "fmt "
+    if (c0 === 0x66 && c1 === 0x6d && c2 === 0x74 && c3 === 0x20 && chunkEnd - chunkStart >= 16) {
+      channels = view.getUint16(chunkStart + 2, true) || 1;
+      sampleRate = view.getUint32(chunkStart + 4, true) || 24000;
+      bitsPerSample = view.getUint16(chunkStart + 14, true) || 16;
+    // "data"
+    } else if (c0 === 0x64 && c1 === 0x61 && c2 === 0x74 && c3 === 0x61) {
+      dataStart = chunkStart;
+      dataEnd = chunkEnd;
+      break;
+    }
+    const padded = csize + (csize & 1);
+    const nextPos = chunkStart + padded;
+    if (nextPos <= pos) break;
+    pos = nextPos;
+  }
+  if (dataStart < 0) return rawBytes;
+  const blockAlign = Math.max(1, channels * Math.floor(bitsPerSample / 8));
+  const rawLen = dataEnd - dataStart;
+  const alignedLen = rawLen - (rawLen % blockAlign);
+  return pcmToWavBytes(rawBytes.subarray(dataStart, dataStart + alignedLen), sampleRate, channels, bitsPerSample);
 }
 
 function pcmToWavBytes(pcmBytes, sampleRate = 24000, numChannels = 1, bitsPerSample = 16) {

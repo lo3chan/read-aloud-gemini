@@ -1,6 +1,6 @@
 {
   "name": "read-aloud",
-  "version": "2.25.15",
+  "version": "2.25.16",
   "description": "A Chrome extension that reads aloud the webpage's content with just one click. Support 40+ languages.",
   "directories": {
     "doc": "docs"

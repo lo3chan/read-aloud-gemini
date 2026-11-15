@@ -443,3 +443,69 @@ test('portal and cloud-tts backends fall back to gemini-3.1-flash-tts-preview on
     assert.ok(storage.geminiTelemetry[0].error.includes('gemini-3.1-flash-tts-preview'));
   }
 });
+
+test('strips trailing C2PA RIFF chunks from audio/wav responses in gemini-api and custom backends', async () => {
+  const pcmSamples = Buffer.from([0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88]);
+  const c2paPayload = Buffer.alloc(128, 0xaa);
+  const riffSize = 4 + (8 + 16) + (8 + pcmSamples.length) + (8 + c2paPayload.length);
+  const wavWithC2pa = Buffer.alloc(8 + riffSize);
+  let offset = 0;
+  wavWithC2pa.write('RIFF', offset); offset += 4;
+  wavWithC2pa.writeUInt32LE(riffSize, offset); offset += 4;
+  wavWithC2pa.write('WAVE', offset); offset += 4;
+  wavWithC2pa.write('fmt ', offset); offset += 4;
+  wavWithC2pa.writeUInt32LE(16, offset); offset += 4;
+  wavWithC2pa.writeUInt16LE(1, offset); offset += 2;
+  wavWithC2pa.writeUInt16LE(1, offset); offset += 2;
+  wavWithC2pa.writeUInt32LE(24000, offset); offset += 4;
+  wavWithC2pa.writeUInt32LE(48000, offset); offset += 4;
+  wavWithC2pa.writeUInt16LE(2, offset); offset += 2;
+  wavWithC2pa.writeUInt16LE(16, offset); offset += 2;
+  wavWithC2pa.write('data', offset); offset += 4;
+  wavWithC2pa.writeUInt32LE(pcmSamples.length, offset); offset += 4;
+  pcmSamples.copy(wavWithC2pa, offset); offset += pcmSamples.length;
+  wavWithC2pa.write('C2PA', offset); offset += 4;
+  wavWithC2pa.writeUInt32LE(c2paPayload.length, offset); offset += 4;
+  c2paPayload.copy(wavWithC2pa, offset);
+
+  // 1. gemini-api returning audio/wav with C2PA
+  {
+    const {engine, getCreatedBlob} = createEngineContext(
+      {backend: 'gemini-api', apiKey: 'test-key', model: 'gemini-3.8-flash-lite-tts', prompt: ''},
+      async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{
+            content: {parts: [{inlineData: {mimeType: 'audio/wav', data: wavWithC2pa.toString('base64')}}]}
+          }]
+        })
+      })
+    );
+    const voices = await engine.getVoices();
+    await engine.speak('Strip C2PA test', {voice: voices[0]});
+    const out = Buffer.from(getCreatedBlob().parts[0]);
+    assert.equal(getCreatedBlob().type, 'audio/wav');
+    assert.equal(out.length, 44 + pcmSamples.length);
+    assert.deepEqual(out.subarray(44), pcmSamples);
+  }
+
+  // 2. custom backend returning audio/wav with C2PA
+  {
+    const {engine, getCreatedBlob} = createEngineContext(
+      {backend: 'custom', customUrl: 'https://tts.example.com', audioEncoding: 'LINEAR16'},
+      async () => ({
+        ok: true,
+        status: 200,
+        headers: {get: () => 'audio/wav'},
+        arrayBuffer: async () => wavWithC2pa.buffer.slice(wavWithC2pa.byteOffset, wavWithC2pa.byteOffset + wavWithC2pa.byteLength)
+      })
+    );
+    const voices = await engine.getVoices();
+    await engine.speak('Strip C2PA custom test', {voice: voices[0]});
+    const out = Buffer.from(getCreatedBlob().parts[0]);
+    assert.equal(getCreatedBlob().type, 'audio/wav');
+    assert.equal(out.length, 44 + pcmSamples.length);
+    assert.deepEqual(out.subarray(44), pcmSamples);
+  }
+});
