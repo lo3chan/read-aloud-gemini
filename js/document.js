@@ -289,7 +289,7 @@ function Doc(source, onEnd) {
   async function serverDetectLanguage(text) {
     try {
       const service = await rxjs.firstValueFrom(fasttextObservable)
-      if (!service) throw new Error("FastText service unavailable")
+      if (!service) return null
       const [prediction] = await service.sendRequest("detectLanguage", {text})
       return prediction?.language
     }

@@ -74,7 +74,8 @@ function GeminiTtsEngine() {
 
   this.speak = function(utterance, options, playbackState$) {
     const urlPromise = getAudioUrl(utterance, options);
-    return playAudio(urlPromise, options, playbackState$);
+    const playFn = typeof playAudio !== "undefined" ? playAudio : playAudioHere;
+    return playFn(urlPromise, options, playbackState$);
   };
 
   this.prefetch = function(utterance, options) {
@@ -316,52 +317,73 @@ function GeminiTtsEngine() {
     let fallbackNote = null;
 
     try {
+      let activeCreds = creds;
+      let activeModel = model;
       let result;
       try {
-        result = await runBackendSynthesis(cleanText, creds, voiceName, model, options);
+        result = await runBackendSynthesis(cleanText, activeCreds, voiceName, activeModel, options);
       } catch (firstErr) {
-        if (!canRetryWithoutPrompt(firstErr, creds)) throw firstErr;
-
-        if ((creds.prompt || "").trim()) {
+        if (
+          (creds.backend === "portal" || creds.backend === "cloud-tts")
+          && firstErr.httpStatus === 400
+          && /model\b.*not supported/i.test(firstErr.message || "")
+          && activeModel !== "gemini-3.1-flash-tts-preview"
+        ) {
+          activeModel = "gemini-3.1-flash-tts-preview";
+          usedModel = activeModel;
+          activeCreds = {...creds, model: activeModel};
+          fallbackNote = `Fell back to ${activeModel} after 400 unsupported model`;
           try {
-            result = await runBackendSynthesis(
-              cleanText,
-              {...creds, prompt: ""},
-              voiceName,
-              model,
-              {...options, pitch: 1}
-            );
-            fallbackNote = creds.backend === "custom"
-              ? `Retried without prompt after custom backend HTTP ${firstErr.httpStatus || 400} error`
-              : "Retried without prompt after Vertex AI 400 filter";
-          } catch (noPromptErr) {
-            if (!canRetryWithoutPrompt(noPromptErr, creds)) throw noPromptErr;
-          }
-        }
-
-        if (!result && (creds.backend === "portal" || creds.backend === "cloud-tts")) {
-          const fb = pickFallbackCloudVoice(languageCode);
-          try {
-            result = await runBackendSynthesis(
-              cleanText,
-              {...creds, prompt: "", languageCode: fb.languageCode, disableModelName: true},
-              fb.name,
-              model,
-              {...options, pitch: 1}
-            );
-            usedVoice = fb.name;
-            usedModel = "standard-fallback";
-            fallbackNote = "Used Cloud Standard fallback after Vertex AI 400 filter";
-          } catch (fbErr) {
-            if (!isSafetyFilterError(fbErr)) throw fbErr;
+            result = await runBackendSynthesis(cleanText, activeCreds, voiceName, activeModel, options);
+          } catch (modelErr) {
+            firstErr = modelErr;
           }
         }
 
         if (!result) {
-          result = createSilentWavResult();
-          fallbackNote = creds.backend === "custom"
-            ? "Skipped chunk after custom backend error"
-            : "Skipped chunk after Vertex AI 400 filter";
+          if (!canRetryWithoutPrompt(firstErr, activeCreds)) throw firstErr;
+
+          if ((activeCreds.prompt || "").trim()) {
+            try {
+              result = await runBackendSynthesis(
+                cleanText,
+                {...activeCreds, prompt: ""},
+                voiceName,
+                activeModel,
+                {...options, pitch: 1}
+              );
+              fallbackNote = activeCreds.backend === "custom"
+                ? `Retried without prompt after custom backend HTTP ${firstErr.httpStatus || 400} error`
+                : "Retried without prompt after Vertex AI 400 filter";
+            } catch (noPromptErr) {
+              if (!canRetryWithoutPrompt(noPromptErr, activeCreds)) throw noPromptErr;
+            }
+          }
+
+          if (!result && (activeCreds.backend === "portal" || activeCreds.backend === "cloud-tts")) {
+            const fb = pickFallbackCloudVoice(languageCode);
+            try {
+              result = await runBackendSynthesis(
+                cleanText,
+                {...activeCreds, prompt: "", languageCode: fb.languageCode, disableModelName: true},
+                fb.name,
+                activeModel,
+                {...options, pitch: 1}
+              );
+              usedVoice = fb.name;
+              usedModel = "standard-fallback";
+              fallbackNote = "Used Cloud Standard fallback after Vertex AI 400 filter";
+            } catch (fbErr) {
+              if (!isSafetyFilterError(fbErr)) throw fbErr;
+            }
+          }
+
+          if (!result) {
+            result = createSilentWavResult();
+            fallbackNote = activeCreds.backend === "custom"
+              ? "Skipped chunk after custom backend error"
+              : "Skipped chunk after Vertex AI 400 filter";
+          }
         }
       }
       httpStatus = result.httpStatus;

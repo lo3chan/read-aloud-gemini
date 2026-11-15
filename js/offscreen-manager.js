@@ -18,6 +18,7 @@ function makeOffscreenManager(api, clients, {timeout = 5000, pollInterval = 100}
   }
 
   async function exists() {
+    if (!api.offscreen) return typeof Audio !== "undefined"
     if (typeof api.offscreen.hasDocument == "function") return api.offscreen.hasDocument()
     if (typeof api.runtime.getContexts == "function") {
       return (await api.runtime.getContexts({contextTypes: ["OFFSCREEN_DOCUMENT"], documentUrls: [url]})).length > 0
@@ -41,7 +42,10 @@ function makeOffscreenManager(api, clients, {timeout = 5000, pollInterval = 100}
   }
 
   async function setup() {
-    if (!api.offscreen) throw new Error("Offscreen documents are unavailable")
+    if (!api.offscreen) {
+      if (typeof Audio !== "undefined") return true
+      throw new Error("Offscreen documents are unavailable")
+    }
     // Retry once if Chrome removes the document during setup. Do not close an
     // existing document: another player may own audio there.
     for (let attempt = 0; attempt < 2; attempt++) {

@@ -38,9 +38,7 @@ var defaults = {
 };
 
 var getSingletonAudio = lazy(() => {
-  const audio = new Audio()
-  audio.crossOrigin = "anonymous"
-  return audio
+  return new Audio()
 })
 var getSilenceTrack = lazy(() => makeSilenceTrack())
 
@@ -98,37 +96,44 @@ function parseQueryString(search) {
 /**
  * SETTINGS
  */
-const settingsChange$ = rxjs.fromEventPattern(
-  h => (brapi.storage.local.onChanged || brapi.storage.onChanged).addListener(h),
-  h => (brapi.storage.local.onChanged || brapi.storage.onChanged).removeListener(h)
-).pipe(
-  rxjs.share()
-)
+const settingsChange$ = brapi.storage && (brapi.storage.local && brapi.storage.local.onChanged || brapi.storage.onChanged)
+  ? rxjs.fromEventPattern(
+      h => (brapi.storage.local.onChanged || brapi.storage.onChanged).addListener(h),
+      h => (brapi.storage.local.onChanged || brapi.storage.onChanged).removeListener(h)
+    ).pipe(
+      rxjs.share()
+    )
+  : rxjs.EMPTY
 
 function getSettings(names) {
+  if (!brapi.storage || !brapi.storage.local) return Promise.resolve({});
   return new Promise(function(fulfill) {
     brapi.storage.local.get(names || ["voiceName", "rate", "pitch", "volume", "showHighlighting", "languages", "highlightFontSize", "highlightWindowSize", "preferredVoices", "useEmbeddedPlayer", "fixBtSilenceGap", "wordReplacements", "darkMode"], fulfill);
   });
 }
 
 function updateSettings(items) {
+  if (!brapi.storage || !brapi.storage.local) return Promise.resolve();
   return new Promise(function(fulfill) {
     brapi.storage.local.set(items, fulfill);
   });
 }
 
 function clearSettings(names) {
+  if (!brapi.storage || !brapi.storage.local) return Promise.resolve();
   return new Promise(function(fulfill) {
     brapi.storage.local.remove(names || ["voiceName", "rate", "pitch", "volume", "showHighlighting", "languages", "highlightFontSize", "highlightWindowSize", "preferredVoices", "useEmbeddedPlayer", "fixBtSilenceGap", "wordReplacements", "darkMode"], fulfill);
   });
 }
 
 async function getSetting(name) {
+  if (!brapi.storage || !brapi.storage.local) return undefined
   const items = await brapi.storage.local.get([name])
   return items[name]
 }
 
 async function updateSetting(name, value) {
+  if (!brapi.storage || !brapi.storage.local) return
   const items = {}
   items[name] = value
   await brapi.storage.local.set(items)
@@ -830,9 +835,33 @@ function playAudioHere(urlPromise, options, playbackState$) {
         new rxjs.Observable(observer => {
           applyRate(currentRate)
           applyVolume(options.volume)
-          audio.oncanplay = () => observer.next()
-          audio.onerror = () => observer.error(new Error(audio.error.message || audio.error.code))
+          let settled = false
+          const cleanupLoadHandlers = () => {
+            audio.oncanplay = null
+            audio.onloadeddata = null
+            if (audio.onerror === onLoadError) audio.onerror = null
+          }
+          const finish = () => {
+            if (settled) return
+            settled = true
+            cleanupLoadHandlers()
+            observer.next()
+            observer.complete()
+          }
+          const onLoadError = () => {
+            if (settled) return
+            settled = true
+            cleanupLoadHandlers()
+            const err = audio.error
+            observer.error(new Error((err && (err.message || err.code)) || "Audio playback error"))
+          }
+          audio.oncanplay = finish
+          audio.onloadeddata = finish
+          audio.onerror = onLoadError
           audio.src = url
+          if (typeof audio.load === "function") audio.load()
+          if (audio.readyState >= 2) finish()
+          return cleanupLoadHandlers
         })
       ),
       rxjs.exhaustMap(() =>

@@ -417,7 +417,7 @@ function reportError(err) {
 }
 
 function playAudio(urlPromise, options, playbackState$) {
-  if (brapi.offscreen) {
+  if (brapi.offscreen || isFirefox()) {
     return playAudioOffscreen(urlPromise, options, playbackState$)
   }
   else {
@@ -430,10 +430,14 @@ function requestAudioPlaybackPermission() {
   if (audioPlaybackPermissionPromise) return audioPlaybackPermissionPromise
   audioPlaybackPermissionPromise = (async function() {
     try {
-      await new Audio(brapi.runtime.getURL("sound/silence.mp3")).play()
+      await promiseTimeout(
+        500,
+        "Audio autoplay timed out",
+        new Audio(brapi.runtime.getURL("sound/silence.mp3")).play()
+      )
       return
     } catch (err) {
-      // Autoplay blocked: prompt user on player tab
+      // Autoplay blocked or timed out: prompt user on player tab
     }
     const thisTab = await brapi.tabs.getCurrent()
     if (!thisTab) {
@@ -487,9 +491,12 @@ function playAudioOffscreen(urlPromise, options, playbackState$) {
     let disposed = false
     let revision = 0
     let subscription
+    const toError = err => err instanceof Error
+      ? err
+      : Object.assign(new Error((err && (err.message || err.name)) || String(err || "Audio playback error")), err && typeof err == "object" ? err : null)
     const eventHandler = (event, sessionId) => {
       if (sessionId != id || disposed) return
-      if (event.type == "error") observer.error(event.error)
+      if (event.type == "error") observer.error(toError(event.error))
       else {
         observer.next(event)
         if (event.type == "end") observer.complete()

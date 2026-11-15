@@ -44,6 +44,7 @@ def run_e2e():
             print("Loaded extension ID:", ext_id)
 
             simulate_429 = {"active": False}
+            pcm_samples = {"count": 2400}
 
             def attach_listeners(page):
                 page.on("pageerror", lambda err: page_errors.append(f"PAGEERROR {page.url}: {err}"))
@@ -53,6 +54,8 @@ def run_e2e():
                             return
                         console_errors.append(f"CONSOLE {page.url}: {msg.text}")
                 page.on("console", on_console)
+
+            context.on("page", attach_listeners)
 
             cloud_requests = []
             gemini_requests = []
@@ -68,7 +71,7 @@ def run_e2e():
                     return
                 body = json.loads(route.request.post_data or "{}")
                 gemini_requests.append({"url": route.request.url, "body": body})
-                pcm_b64 = base64.b64encode(b"\x00\x00" * 2400).decode("ascii")
+                pcm_b64 = base64.b64encode(b"\x00\x00" * pcm_samples["count"]).decode("ascii")
                 route.fulfill(
                     status=200,
                     content_type="application/json",
@@ -270,6 +273,67 @@ def run_e2e():
             opt_portal_tab.wait_for_load_state("domcontentloaded", timeout=10000)
             assert "cloud.google.com/text-to-speech" in opt_portal_tab.url
             opt_portal_tab.close()
+
+            # Test Options #test-voice transitions LOADING -> PLAYING (spinner hidden) -> STOPPED, plus cache hit & offscreen player path
+            simulate_429["active"] = False
+            pcm_samples["count"] = 48000
+            page.locator("#gemini-backend").select_option("gemini-api")
+            page.locator("#gemini-backend").dispatch_event("change")
+            page.wait_for_timeout(200)
+
+            page.locator("#test-voice").click()
+            page.wait_for_function("""() => {
+                const btn = document.querySelector('#test-voice');
+                const label = btn && btn.querySelector('[data-i18n]');
+                const sp = btn && btn.querySelector('.spinner');
+                return label && label.textContent.trim() === 'Stop' && sp && getComputedStyle(sp).display === 'none';
+            }""", timeout=5000)
+            assert not page.locator("#status").is_visible(), f"Unexpected Options error banner: {page.locator('#status').inner_text()}"
+
+            # Click Stop and verify clean reset
+            page.locator("#test-voice").click()
+            page.wait_for_function("""() => {
+                const btn = document.querySelector('#test-voice');
+                const label = btn && btn.querySelector('[data-i18n]');
+                const sp = btn && btn.querySelector('.spinner');
+                return label && label.textContent.trim() === 'Test' && sp && getComputedStyle(sp).display === 'none';
+            }""", timeout=5000)
+
+            # Second click should hit cached audio and still leave LOADING cleanly
+            page.locator("#test-voice").click()
+            page.wait_for_function("""() => {
+                const btn = document.querySelector('#test-voice');
+                const label = btn && btn.querySelector('[data-i18n]');
+                const sp = btn && btn.querySelector('.spinner');
+                return label && label.textContent.trim() === 'Stop' && sp && getComputedStyle(sp).display === 'none';
+            }""", timeout=5000)
+            page.locator("#test-voice").click()
+            page.wait_for_function("""() => {
+                const btn = document.querySelector('#test-voice');
+                const label = btn && btn.querySelector('[data-i18n]');
+                return label && label.textContent.trim() === 'Test';
+            }""", timeout=5000)
+
+            # Also verify MV3 offscreen playback path via background playText (must not crash on brapi.storage undefined)
+            bg_state = page.evaluate("""async () => {
+                await bgPageInvoke("playText", ["Testing background offscreen audio playback cleanly.", {lang: "en"}]);
+                const deadline = Date.now() + 5000;
+                while (Date.now() < deadline) {
+                    const st = await bgPageInvoke("getPlaybackState");
+                    if (st && st.state === "PLAYING") {
+                        await bgPageInvoke("stop");
+                        return st.state;
+                    }
+                    if (st && st.playbackError) {
+                        throw new Error(JSON.stringify(st.playbackError));
+                    }
+                    await new Promise(r => setTimeout(r, 100));
+                }
+                const last = await bgPageInvoke("getPlaybackState");
+                await bgPageInvoke("stop");
+                return last ? last.state : null;
+            }""")
+            assert bg_state == "PLAYING", f"Background playText did not reach PLAYING (state={bg_state})"
 
             assert not page_errors, f"Uncaught page errors: {page_errors}"
             assert not console_errors, f"Console errors: {console_errors}"

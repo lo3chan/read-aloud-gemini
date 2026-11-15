@@ -395,3 +395,51 @@ test('custom backend retries without prompt on 400, 502, or 503 and logs fallbac
   assert.equal(storage.geminiTelemetry[0].status, 'ok');
   assert.ok(storage.geminiTelemetry[0].error.includes('Retried without prompt'));
 });
+
+test('portal and cloud-tts backends fall back to gemini-3.1-flash-tts-preview on 400 unsupported model', async () => {
+  for (const backendCase of [
+    {backend: 'portal', gcpToken: 'portal-token'},
+    {backend: 'cloud-tts', apiKey: 'cloud-key'}
+  ]) {
+    const requests = [];
+    const fakeWav = Uint8Array.from([0x52, 0x49, 0x46, 0x46]).buffer;
+    const fakeWavBase64 = Buffer.from(fakeWav).toString('base64');
+    const {engine, storage} = createEngineContext(
+      {
+        backend: backendCase.backend,
+        apiKey: backendCase.apiKey || '',
+        model: 'gemini-3.8-flash-lite-tts',
+        prompt: 'Speak warmly'
+      },
+      async (url, options) => {
+        const body = JSON.parse(options.body);
+        requests.push(body);
+        if (body.voice && body.voice.modelName === 'gemini-3.8-flash-lite-tts') {
+          const payload = {error: {code: 400, message: "The model 'gemini-3.8-flash-lite-tts' is not supported."}};
+          return {
+            ok: false,
+            status: 400,
+            json: async () => payload,
+            text: async () => JSON.stringify(payload)
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({audioContent: fakeWavBase64})
+        };
+      }
+    );
+    if (backendCase.gcpToken) storage.gcpToken = backendCase.gcpToken;
+
+    const voices = await engine.getVoices();
+    const url = await engine.speak('Fallback test text', {voice: voices[0]});
+    assert.equal(url, 'blob:gemini-test');
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].voice.modelName, 'gemini-3.8-flash-lite-tts');
+    assert.equal(requests[1].voice.modelName, 'gemini-3.1-flash-tts-preview');
+    assert.equal(storage.geminiTelemetry[0].status, 'ok');
+    assert.equal(storage.geminiTelemetry[0].model, 'gemini-3.1-flash-tts-preview');
+    assert.ok(storage.geminiTelemetry[0].error.includes('gemini-3.1-flash-tts-preview'));
+  }
+});

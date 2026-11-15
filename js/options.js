@@ -200,6 +200,19 @@
       })
     }
   }
+  async function saveGeminiOptions() {
+    const existing = (await getSetting("geminiCreds")) || {};
+    const next = Object.assign({}, geminiTtsEngine.defaultConfig, existing, {
+      backend: $("#gemini-backend").val(),
+      customUrl: $("#gemini-custom-url").val().trim(),
+      apiKey: $("#gemini-api-key").val().trim(),
+      model: $("#gemini-model").val().trim() || geminiTtsEngine.defaultConfig.model,
+      languageCode: $("#gemini-lang").val().trim() || "en-gb",
+      prompt: $("#gemini-prompt").val()
+    });
+    await updateSettings({geminiCreds: next});
+  }
+
   const voiceTestSubject = new rxjs.Subject()
   rxjs.defer(() => domReadyPromise).pipe(
     rxjs.exhaustMap(() =>
@@ -208,27 +221,45 @@
           rxjs.iif(
             () => state == "STOPPED",
             //play
-            rxjs.defer(() => {
-              return voices$.pipe(rxjs.take(1))
-            }).pipe(
-              rxjs.exhaustMap(voices => {
-                const voiceName = $("#voices").val()
-                const voice = voiceName && findVoiceByName(voices, voiceName)
-                const {lang} = parseLang(voice && getFirstLanguage(voice) || "en-US")
-                return rxjs.defer(() => demoSpeech.get(lang)).pipe(
-                  rxjs.exhaustMap(({text}) => bgPageInvoke("playText", [text, {lang}]))
-                )
-              }),
-              rxjs.exhaustMap(() =>
-                rxjs.timer(100, 500).pipe(
-                  rxjs.exhaustMap(() => bgPageInvoke("getPlaybackState")),
-                  rxjs.filter(Boolean),
-                  rxjs.takeWhile(({state}) => state != "STOPPED", true)
-                )
-              )
+            rxjs.concat(
+              rxjs.of({state: "LOADING"}),
+              voices$.pipe(
+                rxjs.take(1),
+                rxjs.exhaustMap(voices =>
+                  rxjs.defer(async () => {
+                    const voiceName = $("#voices").val()
+                    const voice = (voiceName && findVoiceByName(voices, voiceName)) || (voices && voices[0]) || null
+                    const {lang} = parseLang(voice && getFirstLanguage(voice) || "en-US")
+                    await saveGeminiOptions()
+                    const settings = await getSettings(["rate", "pitch", "volume", ...(voice ? ["rate" + voice.voiceName] : [])])
+                    const rate = voice && settings["rate" + voice.voiceName] != null ? settings["rate" + voice.voiceName] : settings.rate
+                    const {text} = await demoSpeech.get(lang)
+                    return {
+                      text,
+                      speakOptions: {
+                        voice,
+                        lang,
+                        rate: rate != null ? rate : 1,
+                        pitch: settings.pitch != null ? settings.pitch : 1,
+                        volume: settings.volume != null ? settings.volume : 1,
+                      }
+                    }
+                  })
+                ),
+                rxjs.exhaustMap(({text, speakOptions}) => {
+                  const playbackState$ = new rxjs.BehaviorSubject("resumed")
+                  return geminiTtsEngine.speak(text, speakOptions, playbackState$).pipe(
+                    rxjs.map(event => event.type == "start" ? {state: "PLAYING"} : null),
+                    rxjs.filter(Boolean)
+                  )
+                })
+              ),
+              rxjs.of({state: "STOPPED"})
+            ).pipe(
+              rxjs.catchError(err => rxjs.of({state: "STOPPED", playbackError: err}))
             ),
             //stop
-            rxjs.defer(() => bgPageInvoke("stop")).pipe(
+            rxjs.defer(() => bgPageInvoke("stop").catch(() => {})).pipe(
               rxjs.map(() => ({state: "STOPPED"}))
             )
           ),
@@ -295,19 +326,6 @@
   });
 
   domReadyPromise.then(() => {
-    async function saveGeminiOptions() {
-      const existing = (await getSetting("geminiCreds")) || {};
-      const next = Object.assign({}, geminiTtsEngine.defaultConfig, existing, {
-        backend: $("#gemini-backend").val(),
-        customUrl: $("#gemini-custom-url").val().trim(),
-        apiKey: $("#gemini-api-key").val().trim(),
-        model: $("#gemini-model").val().trim() || geminiTtsEngine.defaultConfig.model,
-        languageCode: $("#gemini-lang").val().trim() || "en-gb",
-        prompt: $("#gemini-prompt").val()
-      });
-      await updateSettings({geminiCreds: next});
-    }
-
     $("#gemini-backend, #gemini-custom-url, #gemini-api-key, #gemini-model, #gemini-lang, #gemini-prompt")
       .on("change", saveGeminiOptions);
 

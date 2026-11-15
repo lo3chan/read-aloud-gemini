@@ -1,5 +1,6 @@
 
 (function() {
+  if (typeof Audio === "undefined") return;
   const current$ = new rxjs.BehaviorSubject(null)
 
   current$.pipe(

@@ -23,6 +23,7 @@ brapi.action.onClicked.addListener(function(tab) {
  */
 var handlers = {
   ensureOffscreen: makeOffscreenManager(brapi, self.clients),
+  playerCheckIn() {},
   playText: playText,
   playTab: playTab,
   reloadAndPlayTab: reloadAndPlayTab,
@@ -341,6 +342,7 @@ function handleHeadlessError(err) {
 }
 
 function reportIssue(url, comment) {
+  if (!config.serviceUrl) return Promise.resolve();
   var manifest = brapi.runtime.getManifest();
   return getSettings()
     .then(function(settings) {
