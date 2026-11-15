@@ -270,7 +270,9 @@
   ]).subscribe(([rawCreds, gcpToken]) => {
     const defaults = geminiTtsEngine.defaultConfig;
     const cfg = Object.assign({}, defaults, rawCreds || {});
-    $("#gemini-backend").val(cfg.backend || defaults.backend);
+    const backend = cfg.backend || defaults.backend;
+    $("#gemini-backend").val(backend);
+    $("#gemini-custom-url").val(cfg.customUrl || "");
     $("#gemini-api-key").val(cfg.apiKey || "");
     const modelVal = cfg.model || defaults.model;
     if ($(`#gemini-model option[value="${modelVal}"]`).length === 0) {
@@ -284,7 +286,9 @@
     }
     $("#gemini-lang").val(langVal);
     $("#gemini-prompt").val(cfg.prompt != null ? cfg.prompt : defaults.prompt);
-    const isPortal = (cfg.backend || defaults.backend) === "portal";
+    const isPortal = backend === "portal";
+    const isCustom = backend === "custom";
+    $("#gemini-custom-url-label, #gemini-custom-url-control").toggle(isCustom);
     $("#gemini-key-label, #gemini-key-control").toggle(!isPortal);
     $("#portal-auth-label, #portal-auth-control").toggle(isPortal);
     $("#portal-token-status").text(gcpToken ? "Authorized" : "Not authorized");
@@ -295,6 +299,7 @@
       const existing = (await getSetting("geminiCreds")) || {};
       const next = Object.assign({}, geminiTtsEngine.defaultConfig, existing, {
         backend: $("#gemini-backend").val(),
+        customUrl: $("#gemini-custom-url").val().trim(),
         apiKey: $("#gemini-api-key").val().trim(),
         model: $("#gemini-model").val().trim() || geminiTtsEngine.defaultConfig.model,
         languageCode: $("#gemini-lang").val().trim() || "en-gb",
@@ -303,7 +308,7 @@
       await updateSettings({geminiCreds: next});
     }
 
-    $("#gemini-backend, #gemini-api-key, #gemini-model, #gemini-lang, #gemini-prompt")
+    $("#gemini-backend, #gemini-custom-url, #gemini-api-key, #gemini-model, #gemini-lang, #gemini-prompt")
       .on("change", saveGeminiOptions);
 
     $("#portal-auth-btn").click(() => {

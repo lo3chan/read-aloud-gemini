@@ -55,6 +55,7 @@ const GEMINI_PREBUILT_VOICES = [
 
 const GEMINI_DEFAULT_CONFIG = {
   backend: "gemini-api",
+  customUrl: "",
   apiKey: "",
   model: "gemini-3.1-flash-tts-preview",
   languageCode: "en-gb",
@@ -92,7 +93,11 @@ function GeminiTtsEngine() {
 
   this.test = async function(rawCreds, sampleText, voiceName) {
     const creds = normalizeCreds(rawCreds);
-    if (creds.backend !== "portal" && !creds.apiKey) {
+    if (creds.backend === "custom") {
+      if (!creds.customUrl) {
+        throw new Error("Backend URL is required for the custom backend.");
+      }
+    } else if (creds.backend !== "portal" && !creds.apiKey) {
       throw new Error("API key is required for this backend.");
     }
     const voice = voiceName || "Achernar";
@@ -117,6 +122,7 @@ function GeminiTtsEngine() {
   this.parsePcmSampleRate = parsePcmSampleRate;
   this.buildCloudTtsRequest = buildCloudTtsRequest;
   this.buildGeminiApiRequest = buildGeminiApiRequest;
+  this.buildCustomSpeechRequest = buildCustomSpeechRequest;
 
   async function getNormalizedCreds() {
     const {geminiCreds} = await getSettings(["geminiCreds"]);
@@ -125,12 +131,15 @@ function GeminiTtsEngine() {
 
   function normalizeCreds(raw) {
     const src = raw || {};
-    const backend = (src.backend === "cloud-tts" || src.backend === "portal") ? src.backend : "gemini-api";
+    const backend = (src.backend === "cloud-tts" || src.backend === "portal" || src.backend === "custom")
+      ? src.backend
+      : "gemini-api";
     const prompt = src.prompt != null
       ? String(src.prompt)
       : (src.defaultPrompt != null ? String(src.defaultPrompt) : GEMINI_DEFAULT_CONFIG.prompt);
     return {
       backend,
+      customUrl: (src.customUrl || "").trim().replace(/\/+$/, ""),
       apiKey: (src.apiKey || "").trim(),
       model: (src.model || GEMINI_DEFAULT_CONFIG.model).trim(),
       languageCode: (src.languageCode || GEMINI_DEFAULT_CONFIG.languageCode).trim(),
@@ -192,13 +201,18 @@ function GeminiTtsEngine() {
   function getAudioUrl(text, options) {
     assert(text && options && options.voice);
     return getNormalizedCreds().then(creds => {
-      if (creds.backend !== "portal" && !creds.apiKey) {
+      if (creds.backend === "custom") {
+        if (!creds.customUrl) {
+          throw new Error(JSON.stringify({code: "error_gemini_not_configured"}));
+        }
+      } else if (creds.backend !== "portal" && !creds.apiKey) {
         throw new Error(JSON.stringify({code: "error_gemini_not_configured"}));
       }
       const voiceName = resolveVoiceName(options.voice);
       const cacheKey = JSON.stringify([
         text,
         creds.backend,
+        creds.customUrl,
         creds.model,
         voiceName,
         creds.languageCode,
@@ -262,6 +276,8 @@ function GeminiTtsEngine() {
       return callCloudTts(cleanText, creds, voiceName, options);
     } else if (creds.backend === "portal") {
       return callPortalTts(cleanText, creds, voiceName, options);
+    } else if (creds.backend === "custom") {
+      return callCustomBackend(cleanText, creds, voiceName, model, options);
     }
     return callGeminiApi(cleanText, creds, voiceName, model, options);
   }
@@ -485,6 +501,72 @@ function GeminiTtsEngine() {
       httpStatus: res.status,
       mimeType: outMime,
       audioBytes: finalBytes.byteLength,
+      url: URL.createObjectURL(blob)
+    };
+  }
+
+  function resolveCustomSpeechUrl(rawUrl) {
+    const clean = String(rawUrl || "").trim().replace(/\/+$/, "");
+    if (!clean) return "";
+    if (/\/audio\/speech$/i.test(clean)) return clean;
+    if (/\/v1$/i.test(clean)) return clean + "/audio/speech";
+    return clean + "/v1/audio/speech";
+  }
+
+  function buildCustomSpeechRequest(text, creds, voiceName, model) {
+    const body = {
+      model: model || creds.model || GEMINI_DEFAULT_CONFIG.model || "tts",
+      input: text,
+      voice: voiceName || "Achernar",
+      response_format: "wav"
+    };
+    const prompt = (creds.prompt || "").trim();
+    if (prompt) {
+      body.instructions = prompt;
+    }
+    return body;
+  }
+
+  async function callCustomBackend(text, creds, voiceName, model) {
+    const url = resolveCustomSpeechUrl(creds.customUrl);
+    if (!url) {
+      throw new Error("Custom backend URL is required.");
+    }
+    const headers = {"Content-Type": "application/json"};
+    if (creds.apiKey) {
+      headers["Authorization"] = "Bearer " + creds.apiKey;
+    }
+    const body = buildCustomSpeechRequest(text, creds, voiceName, model);
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      let msg = errText || `HTTP ${res.status}`;
+      try {
+        const parsed = JSON.parse(errText);
+        if (parsed && parsed.error) {
+          msg = parsed.error.message || JSON.stringify(parsed.error);
+        }
+      } catch (_) {}
+      const err = new Error(`Custom backend error (${msg})`);
+      err.httpStatus = res.status;
+      throw err;
+    }
+    const buf = await res.arrayBuffer();
+    if (!buf || !buf.byteLength) {
+      const err = new Error("Custom backend returned empty audio");
+      err.httpStatus = res.status;
+      throw err;
+    }
+    const mimeType = (res.headers.get("content-type") || "audio/wav").split(";")[0].trim();
+    const blob = new Blob([buf], {type: mimeType});
+    return {
+      httpStatus: res.status,
+      mimeType,
+      audioBytes: buf.byteLength,
       url: URL.createObjectURL(blob)
     };
   }
