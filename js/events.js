@@ -36,10 +36,6 @@ var handlers = {
   seek: seek,
   reportIssue: reportIssue,
   authWavenet: authWavenet,
-  managePiperVoices,
-  manageSupertonicVoices,
-  managePocketTtsVoices,
-  manageNghiTtsVoices,
   activateReader,
   openPopupWindow,
   openOptionsPage,
@@ -439,43 +435,6 @@ async function openPdfViewer(tabId, pdfUrl) {
   await new Promise(f => handlers.pdfViewerCheckIn = f)
 }
 
-async function managePiperVoices() {
-  const result = await sendToPlayer({method: "managePiperVoices"}).catch(err => false)
-  if (result != "OK") {
-    if (result == "POPOUT") await sendToPlayer({method: "close"})
-    await injectPlayer()
-    await sendToPlayer({method: "managePiperVoices"})
-  }
-}
-
-async function manageSupertonicVoices() {
-  const result = await sendToPlayer({method: "manageSupertonicVoices"}).catch(err => false)
-  if (result != "OK") {
-    if (result == "POPOUT") await sendToPlayer({method: "close"})
-    await injectPlayer()
-    await sendToPlayer({method: "manageSupertonicVoices"})
-  }
-}
-
-async function managePocketTtsVoices() {
-  const result = await sendToPlayer({method: "managePocketTtsVoices"}).catch(err => false)
-  if (result != "OK") {
-    if (result == "POPOUT") await sendToPlayer({method: "close"})
-    await injectPlayer()
-    await sendToPlayer({method: "managePocketTtsVoices"})
-  }
-}
-
-async function manageNghiTtsVoices() {
-  const result = await sendToPlayer({method: "manageNghiTtsVoices"}).catch(err => false)
-  if (result != "OK") {
-    if (result == "POPOUT") await sendToPlayer({method: "close"})
-    await injectPlayer()
-    await sendToPlayer({method: "manageNghiTtsVoices"})
-  }
-}
-
-
 
 async function contentScriptAlreadyInjected(tab, frameId) {
   const items = await brapi.scripting.executeScript({
@@ -527,15 +486,9 @@ function injectPlayer(tab) {
 }
 
 async function createPlayer(tab) {
-  const settings = await getSettings(["useEmbeddedPlayer", "piperVoices", "supertonicVoices", "pocketTtsVoices", "nghiTtsVoices"])
+  const settings = await getSettings(["useEmbeddedPlayer"])
   const promise = new Promise(f => handlers.playerCheckIn = f)
-  if (tab && settings.useEmbeddedPlayer
-    //don't use embedded player if there are hosted tool voices installed
-    && (settings.piperVoices || []).length == 0
-    && (settings.supertonicVoices || []).length == 0
-    && (settings.pocketTtsVoices || []).length == 0
-    && (settings.nghiTtsVoices || []).length == 0
-  ) {
+  if (tab && settings.useEmbeddedPlayer) {
     try {
       if (tab.incognito) {
         //https://developer.chrome.com/docs/extensions/mv3/manifest/incognito/
