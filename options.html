@@ -82,13 +82,21 @@
         <option value="gemini-api">Gemini API Key</option>
         <option value="portal">Google Cloud Portal (No API Key)</option>
         <option value="cloud-tts">Google Cloud TTS API Key</option>
+        <option value="custom">Custom Backend (LLM Manager / OpenAI TTS)</option>
       </select>
+
+      <div id="gemini-custom-url-label" style="display: none;">
+        <span>Backend URL</span>
+      </div>
+      <div id="gemini-custom-url-control" style="display: none;">
+        <input id="gemini-custom-url" type="url" class="form-control" placeholder="https://llm.gettysburgbeacon.com" />
+      </div>
 
       <div id="gemini-key-label">
         <span>API Key</span>
       </div>
       <div id="gemini-key-control">
-        <input id="gemini-api-key" type="password" class="form-control" placeholder="AIza... or AQ..." />
+        <input id="gemini-api-key" type="password" class="form-control" placeholder="AIza... or llm_..." />
       </div>
 
       <div id="portal-auth-label" style="display: none;">

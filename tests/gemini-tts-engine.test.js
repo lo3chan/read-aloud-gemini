@@ -235,3 +235,63 @@ test('portal backend retries without prompt and falls back to Standard voice on 
   assert.equal(storage.geminiTelemetry[0].status, 'ok');
   assert.equal(storage.geminiTelemetry[0].voice, 'en-GB-Standard-A');
 });
+
+test('custom backend sends /v1/audio/speech with optional Bearer token, instructions, and returns audio/wav blob', async () => {
+  const requests = [];
+  const fakeWav = Uint8Array.from([0x52, 0x49, 0x46, 0x46]).buffer;
+  const {engine, storage, getCreatedBlob} = createEngineContext(
+    {
+      backend: 'custom',
+      customUrl: 'https://llm.gettysburgbeacon.com',
+      apiKey: 'llm_test_key',
+      model: 'gemini-3.1-flash-tts-preview',
+      prompt: 'Speak warmly.'
+    },
+    async (url, options) => {
+      requests.push({
+        url,
+        headers: options.headers,
+        body: JSON.parse(options.body)
+      });
+      return {
+        ok: true,
+        status: 200,
+        headers: {get: () => 'audio/wav'},
+        arrayBuffer: async () => fakeWav
+      };
+    }
+  );
+
+  const voices = await engine.getVoices();
+  const achernar = voices.find(v => v.voiceName === 'Gemini Achernar');
+  const url = await engine.speak('Hello custom backend!', {voice: achernar});
+
+  assert.equal(url, 'blob:gemini-test');
+  assert.equal(getCreatedBlob().type, 'audio/wav');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, 'https://llm.gettysburgbeacon.com/v1/audio/speech');
+  assert.equal(requests[0].headers.Authorization, 'Bearer llm_test_key');
+  assert.deepEqual(requests[0].body, {
+    model: 'gemini-3.1-flash-tts-preview',
+    input: 'Hello custom backend!',
+    voice: 'Achernar',
+    instructions: 'Speak warmly.',
+    response_format: 'wav'
+  });
+  assert.equal(storage.geminiTelemetry[0].status, 'ok');
+  assert.equal(storage.geminiTelemetry[0].backend, 'custom');
+  assert.equal(storage.geminiTelemetry[0].mimeType, 'audio/wav');
+
+  // Keyless request (e.g., chat.gettysburgbeacon.com from home IP) omits Authorization header
+  storage.geminiCreds = {
+    backend: 'custom',
+    customUrl: 'https://chat.gettysburgbeacon.com/v1/audio/speech',
+    apiKey: '',
+    model: 'gemini-3.1-flash-tts-preview',
+    prompt: ''
+  };
+  await engine.speak('Keyless test!', {voice: achernar});
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].url, 'https://chat.gettysburgbeacon.com/v1/audio/speech');
+  assert.equal(requests[1].headers.Authorization, undefined);
+});
