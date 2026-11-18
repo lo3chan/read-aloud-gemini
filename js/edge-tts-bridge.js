@@ -297,7 +297,10 @@
   }
 
   async function ensureDnrRule(muid) {
-    const dnr = global.chrome && global.chrome.declarativeNetRequest;
+    const dnr =
+      (global.brapi && global.brapi.declarativeNetRequest) ||
+      (global.chrome && global.chrome.declarativeNetRequest) ||
+      (global.browser && global.browser.declarativeNetRequest);
     if (!dnr || typeof dnr.updateDynamicRules !== "function") {
       throw new Error("declarativeNetRequest API is required for direct Edge TTS.");
     }
