@@ -160,6 +160,12 @@ const voices$ = rxjs.combineLatest({
         h => brapi.tts.onVoicesChanged.addListener(h),
         h => brapi.tts.onVoicesChanged.removeListener(h)
       ).pipe(rxjs.debounceTime(300), rxjs.startWith(null))
+    : rxjs.of(null),
+  webSpeechVoicesChanged: (typeof speechSynthesis !== "undefined" && typeof speechSynthesis.addEventListener === "function")
+    ? rxjs.fromEventPattern(
+        h => speechSynthesis.addEventListener("voiceschanged", h),
+        h => speechSynthesis.removeEventListener("voiceschanged", h)
+      ).pipe(rxjs.debounceTime(300), rxjs.startWith(null))
     : rxjs.of(null)
 }).pipe(
   rxjs.exhaustMap(() => geminiTtsEngine.getVoices()),

@@ -80,6 +80,8 @@ function WebSpeechEngine() {
     utter.text = text;
     if (options.voice && typeof SpeechSynthesisVoice !== "undefined" && options.voice instanceof SpeechSynthesisVoice) {
       utter.voice = options.voice;
+    } else if (options.voice && options.voice._nativeVoice) {
+      utter.voice = options.voice._nativeVoice;
     } else if (options.voice && options.voice.voiceName && typeof speechSynthesis !== "undefined") {
       const match = (speechSynthesis.getVoices() || []).find(v => v.name === options.voice.voiceName);
       if (match) utter.voice = match;
@@ -111,20 +113,47 @@ function WebSpeechEngine() {
     callback(speechSynthesis.speaking);
   };
   this.getVoices = function() {
-    return promiseTimeout(1500, "Timeout WebSpeech getVoices", new Promise(function(fulfill) {
+    return new Promise(function(fulfill) {
       var voices = speechSynthesis.getVoices() || [];
-      if (voices.length) fulfill(voices);
-      else speechSynthesis.onvoiceschanged = function() {
-        fulfill(speechSynthesis.getVoices() || []);
-      };
-    }))
-    .then(function(voices) {
-      for (const voice of voices) {
-        voice.voiceName = voice.name;
-        voice.remote = !voice.localService;
-        voice.isNative = true;
+      if (voices.length) {
+        fulfill(voices);
+        return;
       }
-      return voices;
+      var settled = false;
+      var finish = function(list) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (typeof speechSynthesis.removeEventListener === "function") {
+          speechSynthesis.removeEventListener("voiceschanged", onChanged);
+        }
+        fulfill(list);
+      };
+      var onChanged = function() {
+        finish(speechSynthesis.getVoices() || []);
+      };
+      var timer = setTimeout(function() {
+        finish(speechSynthesis.getVoices() || []);
+      }, 3000);
+      if (typeof speechSynthesis.addEventListener === "function") {
+        speechSynthesis.addEventListener("voiceschanged", onChanged);
+      } else {
+        speechSynthesis.onvoiceschanged = onChanged;
+      }
+    })
+    .then(function(voices) {
+      return voices.map(function(voice) {
+        const normLang = String(voice.lang || "").replace(/_/g, "-");
+        return {
+          voiceName: voice.name || voice.voiceName,
+          lang: normLang || voice.lang,
+          langs: normLang ? [normLang] : [],
+          remote: !voice.localService,
+          localService: voice.localService,
+          isNative: true,
+          _nativeVoice: voice
+        };
+      });
     })
     .catch(function(err) {
       console.error(err);
@@ -301,6 +330,40 @@ function GeminiTtsEngine() {
   this.getVoices = async function() {
     const creds = await getNormalizedCreds();
     return this.getVoicesForBackend(creds.backend, creds.languageCode);
+  };
+
+  this.getSystemCapabilities = async function() {
+    let phononMode = "none";
+    if (typeof globalThis !== "undefined" && globalThis.phononBridge && typeof globalThis.phononBridge.detectSupport === "function") {
+      const sup = await globalThis.phononBridge.detectSupport();
+      phononMode = sup.mode;
+    } else if (typeof WebAssembly === "object") {
+      phononMode = "wasm";
+    }
+    const hasEdgeTts = Boolean(
+      (typeof brapi !== "undefined" && (brapi.declarativeNetRequest || brapi.webRequest)) ||
+      (typeof chrome !== "undefined" && (chrome.declarativeNetRequest || chrome.webRequest)) ||
+      (typeof browser !== "undefined" && (browser.declarativeNetRequest || browser.webRequest))
+    );
+    const hasNativeApi = Boolean(
+      (typeof brapi !== "undefined" && brapi.tts) ||
+      typeof speechSynthesis !== "undefined"
+    );
+    let nativeVoiceCount = 0;
+    const nativeEngine = (typeof brapi !== "undefined" && brapi.tts)
+      ? browserTtsEngine
+      : (typeof speechSynthesis !== "undefined" ? (browserTtsEngine instanceof WebSpeechEngine ? browserTtsEngine : new WebSpeechEngine()) : null);
+    if (hasNativeApi && nativeEngine && !(nativeEngine instanceof DummyTtsEngine)) {
+      const voices = await nativeEngine.getVoices().catch(() => []);
+      nativeVoiceCount = Array.isArray(voices) ? voices.length : 0;
+    }
+    return {
+      phononMode,
+      hasPhonon: phononMode !== "none",
+      hasEdgeTts,
+      hasNativeTts: hasNativeApi,
+      nativeVoiceCount
+    };
   };
 
   this.test = async function(rawCreds, sampleText, voiceName) {
@@ -915,7 +978,8 @@ function GeminiTtsEngine() {
   async function callPhononWebGpu(text, creds, voiceName, options) {
     const rate = options && options.rate;
     const canDirect = typeof globalThis !== "undefined" && globalThis.phononBridge &&
-      typeof navigator !== "undefined" && navigator.gpu;
+      typeof window !== "undefined" &&
+      ((typeof navigator !== "undefined" && navigator.gpu) || (typeof WebAssembly === "object" && typeof Worker === "function"));
     return runOffscreenOrDirect(
       canDirect ? () => globalThis.phononBridge.synthesize(text, voiceName, rate) : null,
       "synthesizePhonon",

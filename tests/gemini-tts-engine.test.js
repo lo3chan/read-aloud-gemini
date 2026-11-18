@@ -600,3 +600,45 @@ test('native backend tests BrowserTtsEngine without API key and records telemetr
   assert.equal(storage.geminiTelemetry[0].status, 'ok');
   assert.equal(storage.geminiTelemetry[0].backend, 'native');
 });
+
+test('WebSpeechEngine normalizes Android underscore locales and getSystemCapabilities reports runtime support', async () => {
+  const {engine, context} = createEngineContext(
+    {backend: 'native', languageCode: 'en-US'},
+    async () => ({}),
+    [],
+    {
+      brapi: {
+        webRequest: {}
+      },
+      speechSynthesis: {
+        speaking: false,
+        getVoices: () => [
+          {name: 'Android English', lang: 'en_US', localService: true},
+          {name: 'Remote Spanish', lang: 'es-ES', localService: false}
+        ],
+        speak() {},
+        cancel() {},
+        pause() {},
+        resume() {}
+      }
+    }
+  );
+  context.phononBridge = {
+    detectSupport: async () => ({supported: true, mode: 'wasm'})
+  };
+
+  const nativeVoices = await engine.getVoicesForBackend('native', 'en-US');
+  assert.equal(nativeVoices.length, 2);
+  assert.equal(nativeVoices[0].voiceName, 'Android English');
+  assert.equal(nativeVoices[0].lang, 'en-US');
+  assert.deepEqual(Array.from(nativeVoices[0].langs), ['en-US']);
+  assert.equal(nativeVoices[0].remote, false);
+  assert.equal(nativeVoices[0].isNative, true);
+
+  const caps = await engine.getSystemCapabilities();
+  assert.equal(caps.phononMode, 'wasm');
+  assert.equal(caps.hasPhonon, true);
+  assert.equal(caps.hasEdgeTts, true);
+  assert.equal(caps.hasNativeTts, true);
+  assert.equal(caps.nativeVoiceCount, 2);
+});

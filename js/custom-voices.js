@@ -5,6 +5,18 @@ $(function() {
   loadConfig();
   loadTelemetry();
 
+  geminiTtsEngine.getSystemCapabilities().then(caps => {
+    const $phonon = $("#gemini-backend option[value='phonon-webgpu']");
+    if (!caps.hasPhonon) {
+      $phonon.prop("hidden", true).prop("disabled", true);
+    } else {
+      $phonon.prop("hidden", false).prop("disabled", false);
+      $phonon.text(caps.phononMode === "wasm" ? "Phonon 31M CPU (Offline)" : "Phonon 31M WebGPU (Offline)");
+    }
+    $("#gemini-backend option[value='edge-tts']").prop("hidden", !caps.hasEdgeTts).prop("disabled", !caps.hasEdgeTts);
+    $("#gemini-backend option[value='native']").prop("hidden", !caps.hasNativeTts).prop("disabled", !caps.hasNativeTts);
+  }).catch(() => {});
+
   observeSetting("geminiTelemetry").subscribe(() => loadTelemetry());
   observeSetting("gcpToken").subscribe(token => updatePortalStatus(token));
 

@@ -70,17 +70,27 @@
     return (tts && tts.defaultVoice) || "Delia";
   }
 
+  async function detectSupport() {
+    if (typeof navigator !== "undefined" && navigator.gpu && typeof navigator.gpu.requestAdapter === "function") {
+      try {
+        const adapter = await navigator.gpu.requestAdapter();
+        if (adapter) return { supported: true, mode: "webgpu" };
+      } catch (_) {}
+    }
+    if (typeof WebAssembly === "object" && typeof Worker === "function") {
+      return { supported: true, mode: "wasm" };
+    }
+    return { supported: false, mode: "none" };
+  }
+
   async function ensurePhonon() {
     if (activeInstance) return activeInstance;
     if (phononPromise) return phononPromise;
 
     phononPromise = (async () => {
-      if (typeof navigator === "undefined" || !navigator.gpu) {
-        throw new Error("WebGPU is not available in this browser context.");
-      }
-      const adapter = await navigator.gpu.requestAdapter();
-      if (!adapter) {
-        throw new Error("No WebGPU adapter found. Check chrome://gpu or enable hardware acceleration.");
+      const support = await detectSupport();
+      if (!support.supported) {
+        throw new Error("Neither WebGPU nor WebAssembly Worker is available in this browser context.");
       }
       if (!modulePromise) {
         const url = typeof brapi !== "undefined" && brapi.runtime && brapi.runtime.getURL
@@ -89,7 +99,7 @@
         modulePromise = import(url);
       }
       const mod = await modulePromise;
-      const tts = await mod.Phonon.load({ backend: "webgpu" });
+      const tts = await mod.Phonon.load({ backend: "auto" });
       activeInstance = tts;
       if (tts && tts.lost && typeof tts.lost.then === "function") {
         tts.lost.then(() => {
@@ -130,6 +140,7 @@
   }
 
   global.phononBridge = {
+    detectSupport,
     synthesize,
     uint8ToBase64,
     resolvePhononVoice,

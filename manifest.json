@@ -4,7 +4,7 @@
   "name": "__MSG_extension_name__",
   "short_name": "__MSG_extension_short_name__",
   "description": "__MSG_extension_description__",
-  "version": "2.25.25",
+  "version": "2.25.26",
   "default_locale": "en",
   "minimum_chrome_version": "99",
 
@@ -54,6 +54,9 @@
   },
   "cross_origin_embedder_policy": {
     "value": "require-corp"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'"
   },
   "web_accessible_resources": [
     {
