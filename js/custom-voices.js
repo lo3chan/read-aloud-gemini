@@ -1,5 +1,7 @@
+let voicePopulateRevision = 0;
+
 $(function() {
-  populateTestVoices();
+  updateBackendUi();
   loadConfig();
   loadTelemetry();
 
@@ -7,6 +9,11 @@ $(function() {
   observeSetting("gcpToken").subscribe(token => updatePortalStatus(token));
 
   $("#gemini-backend").change(updateBackendUi);
+  $("#gemini-lang").change(() => {
+    if ($("#gemini-backend").val() === "edge-tts") {
+      populateTestVoices("edge-tts", $("#gemini-lang").val());
+    }
+  });
 
   $("#portal-auth-btn").click(function() {
     $(".status").hide();
@@ -52,13 +59,28 @@ $(function() {
   });
 });
 
-function populateTestVoices() {
+async function populateTestVoices(backend, languageCode) {
+  const rev = ++voicePopulateRevision;
+  const b = backend || $("#gemini-backend").val() || "gemini-api";
+  const lang = languageCode || $("#gemini-lang").val() || "en-gb";
   const select = $("#test-voice-select");
+  const prev = select.val();
+  const list = await geminiTtsEngine.getVoicesForBackend(b, lang);
+  if (rev !== voicePopulateRevision) return;
   select.empty();
-  for (const voice of geminiTtsEngine.prebuiltVoices) {
-    $("<option>").val(voice).text(voice).appendTo(select);
+  const values = [];
+  for (const voice of list) {
+    const val = voice.geminiVoice || voice.voiceName;
+    values.push(val);
+    $("<option>").val(val).text(val).appendTo(select);
   }
-  select.val("Achernar");
+  if (prev && values.includes(prev)) {
+    select.val(prev);
+  } else if (values.includes("Achernar")) {
+    select.val("Achernar");
+  } else if (values.length) {
+    select.val(values[0]);
+  }
 }
 
 function applyConfigToForm(raw) {
@@ -82,6 +104,8 @@ function applyConfigToForm(raw) {
     badge.removeClass("badge-secondary").addClass("badge-primary").text("Phonon 31M (WebGPU)");
   } else if (cfg.backend === "edge-tts") {
     badge.removeClass("badge-secondary").addClass("badge-primary").text("Edge Neural TTS");
+  } else if (cfg.backend === "native") {
+    badge.removeClass("badge-secondary").addClass("badge-primary").text("Device Native TTS");
   } else if (cfg.apiKey) {
     badge.removeClass("badge-secondary").addClass("badge-primary")
       .text(cfg.backend === "cloud-tts" ? "Cloud TTS v1beta1" : "Gemini API");
@@ -91,12 +115,26 @@ function applyConfigToForm(raw) {
 }
 
 function updateBackendUi() {
-  const backend = $("#gemini-backend").val();
+  const backend = $("#gemini-backend").val() || "gemini-api";
+  const isGeminiFamily = backend === "gemini-api" || backend === "portal" || backend === "cloud-tts";
+  const needsApiKey = backend === "gemini-api" || backend === "cloud-tts";
   const isPortal = backend === "portal";
-  const isKeyless = backend === "google-translate" || backend === "phonon-webgpu" || backend === "edge-tts";
-  $("#api-key-group").toggle(!isPortal && !isKeyless);
+  const hasLocale = isGeminiFamily || backend === "edge-tts" || backend === "google-translate";
+  const hasEncoding = backend === "portal" || backend === "cloud-tts";
+  const hasChunkSize = isGeminiFamily || backend === "edge-tts" || backend === "phonon-webgpu";
+  const hasVoiceSelect = backend !== "google-translate";
+
+  $("#api-key-group").toggle(needsApiKey);
   $("#portal-auth-group").toggle(isPortal);
+  $("#model-group").toggle(isGeminiFamily);
+  $("#lang-group").toggle(hasLocale);
+  $("#encoding-group").toggle(hasEncoding);
+  $("#chunk-size-group").toggle(hasChunkSize);
+  $("#prompt-group").toggle(isGeminiFamily);
+  $("#test-voice-group").toggle(hasVoiceSelect);
   $("#api-key-hint").text("");
+
+  populateTestVoices(backend, $("#gemini-lang").val());
 }
 
 function updatePortalStatus(token) {
@@ -131,7 +169,7 @@ async function saveConfig() {
   $(".status").hide();
   try {
     const geminiCreds = readFormConfig();
-    if (geminiCreds.backend !== "portal" && geminiCreds.backend !== "google-translate" && geminiCreds.backend !== "phonon-webgpu" && geminiCreds.backend !== "edge-tts" && !geminiCreds.apiKey) {
+    if (geminiCreds.backend !== "portal" && geminiCreds.backend !== "google-translate" && geminiCreds.backend !== "phonon-webgpu" && geminiCreds.backend !== "edge-tts" && geminiCreds.backend !== "native" && !geminiCreds.apiKey) {
       await clearSettings(["geminiCreds"]);
       applyConfigToForm(null);
       showSuccess("Gemini TTS disabled (API key cleared).");
@@ -157,9 +195,14 @@ async function testConfig() {
     applyConfigToForm(geminiCreds);
 
     const player = document.getElementById("test-audio-player");
-    player.src = result.url;
-    player.style.display = "block";
-    player.play().catch(() => {});
+    if (result.url) {
+      player.src = result.url;
+      player.style.display = "block";
+      player.play().catch(() => {});
+    } else {
+      player.removeAttribute("src");
+      player.style.display = "none";
+    }
 
     $("#gemini-progress").hide();
     showSuccess(`Test succeeded (${result.durationMs}ms, ${formatBytes(result.audioBytes)}, ${result.mimeType}). Settings saved.`);

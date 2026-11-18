@@ -151,6 +151,44 @@ def run_e2e():
             opt_page.locator("#gemini-api-key").dispatch_event("change")
             opt_page.wait_for_timeout(300)
 
+            # Verify dynamic backend-specific visibility & voice lists in options.html
+            opt_page.locator("#gemini-backend").select_option("edge-tts")
+            opt_page.wait_for_timeout(300)
+            assert opt_page.locator("#voice-control").is_visible()
+            assert not opt_page.locator("#gemini-key-control").is_visible()
+            assert not opt_page.locator("#gemini-model-control").is_visible()
+            assert opt_page.locator("#gemini-lang-control").is_visible()
+            assert not opt_page.locator("#gemini-prompt-control").is_visible()
+            assert "en-GB-SoniaNeural" in opt_page.locator("#voices").inner_text()
+
+            opt_page.locator("#gemini-backend").select_option("phonon-webgpu")
+            opt_page.wait_for_timeout(300)
+            assert opt_page.locator("#voice-control").is_visible()
+            assert not opt_page.locator("#gemini-key-control").is_visible()
+            assert not opt_page.locator("#gemini-model-control").is_visible()
+            assert not opt_page.locator("#gemini-lang-control").is_visible()
+            assert not opt_page.locator("#gemini-prompt-control").is_visible()
+            assert "Delia" in opt_page.locator("#voices").inner_text()
+
+            opt_page.locator("#gemini-backend").select_option("google-translate")
+            opt_page.wait_for_timeout(300)
+            assert not opt_page.locator("#voice-control").is_visible()
+            assert opt_page.locator("#gemini-lang-control").is_visible()
+
+            opt_page.locator("#gemini-backend").select_option("native")
+            opt_page.wait_for_timeout(300)
+            assert opt_page.locator("#voice-control").is_visible()
+            assert not opt_page.locator("#gemini-key-control").is_visible()
+            assert not opt_page.locator("#gemini-model-control").is_visible()
+            assert not opt_page.locator("#gemini-lang-control").is_visible()
+            assert not opt_page.locator("#gemini-prompt-control").is_visible()
+
+            opt_page.locator("#gemini-backend").select_option("gemini-api")
+            opt_page.wait_for_timeout(300)
+            assert opt_page.locator("#gemini-key-control").is_visible()
+            assert opt_page.locator("#gemini-model-control").is_visible()
+            assert opt_page.locator("#gemini-prompt-control").is_visible()
+
             # Verify version indicator & Check for Updates button
             assert "Version 2.25." in opt_page.locator("#ext-version").inner_text()
             context.route("https://raw.githubusercontent.com/**", lambda route: route.fulfill(
@@ -176,7 +214,39 @@ def run_e2e():
             page.wait_for_timeout(300)
             assert page.locator("#gemini-api-key").input_value() == "AIza-options-inline-key"
 
+            # Test dynamic backend-specific visibility & test-voice-select in custom-voices.html
+            page.locator("#gemini-backend").select_option("edge-tts")
+            page.wait_for_timeout(200)
+            assert not page.locator("#api-key-group").is_visible()
+            assert not page.locator("#model-group").is_visible()
+            assert not page.locator("#encoding-group").is_visible()
+            assert not page.locator("#prompt-group").is_visible()
+            assert page.locator("#lang-group").is_visible()
+            assert page.locator("#test-voice-group").is_visible()
+            assert "en-GB-SoniaNeural" in page.locator("#test-voice-select").inner_text()
+
+            page.locator("#gemini-backend").select_option("phonon-webgpu")
+            page.wait_for_timeout(200)
+            assert not page.locator("#lang-group").is_visible()
+            assert page.locator("#chunk-size-group").is_visible()
+            assert page.locator("#test-voice-group").is_visible()
+            assert "Delia" in page.locator("#test-voice-select").inner_text()
+
+            page.locator("#gemini-backend").select_option("google-translate")
+            page.wait_for_timeout(200)
+            assert not page.locator("#test-voice-group").is_visible()
+            assert not page.locator("#chunk-size-group").is_visible()
+            assert page.locator("#lang-group").is_visible()
+
+            page.locator("#gemini-backend").select_option("native")
+            page.wait_for_timeout(200)
+            assert not page.locator("#lang-group").is_visible()
+            assert not page.locator("#chunk-size-group").is_visible()
+            assert page.locator("#test-voice-group").is_visible()
+
             # Test Gemini API
+            page.locator("#gemini-backend").select_option("gemini-api")
+            page.wait_for_timeout(200)
             page.locator("#test-voice-select").select_option("Achernar")
             page.locator("#gemini-test-btn").click()
             page.wait_for_selector("#gemini-success:visible", timeout=5000)

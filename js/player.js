@@ -12,35 +12,6 @@ maintainPlaybackWakeLock(async () => {
 })
 
 
-const fasttextSubject = new rxjs.Subject()
-const fasttextObservable = rxjs.defer(() => {
-    createFasttextFrame()
-    return fasttextSubject
-  })
-  .pipe(
-    rxjs.startWith(null),
-    rxjs.shareReplay({bufferSize: 1, refCount: false})
-  )
-const fasttextDispatcher = makeDispatcher("fasttext-host", {
-  onServiceReady(args, sender) {
-    fasttextSubject.next(sender)
-  }
-})
-
-
-window.addEventListener("message", event => {
-  const send = message => event.source.postMessage(message, {targetOrigin: event.origin})
-
-  fasttextDispatcher.dispatch(event.data, {
-    sendRequest(method, args) {
-      const id = String(Math.random())
-      send({from: "fasttext-host", to: "fasttext-service", type: "request", id, method, args})
-      return fasttextDispatcher.waitForResponse(id)
-    }
-  }, send)
-})
-
-
 const idleSubject = new rxjs.BehaviorSubject(true)
 
 if (queryString.has("autoclose")) {
@@ -239,9 +210,6 @@ function reportError(err) {
     var details = err.stack;
     if (!details.startsWith(err.name)) details = err.name + ": " + err.message + "\n" + details;
     console.error(details)
-    lastUrlPromise
-      .then(url => bgPageInvoke("reportIssue", [url, details]))
-      .catch(console.error)
   }
 }
 
@@ -416,13 +384,4 @@ async function shouldPlaySilence(providerId) {
       return should
     }
   }
-}
-
-function createFasttextFrame() {
-  const f = document.createElement("iframe")
-  f.id = "fasttext-frame"
-  f.src = "https://ttstool.com/fasttext/index.html"
-  f.allow = "cross-origin-isolated"
-  f.style.display = "none"
-  document.body.appendChild(f)
 }

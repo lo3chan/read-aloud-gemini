@@ -252,20 +252,10 @@ function Doc(source, onEnd) {
   }
 
   function detectLanguageOf(text) {
-    if (text.length < 100) {
-      //too little text, use cloud detection for improved accuracy
-      return serverDetectLanguage(text)
-        .then(function(result) {
-          return result || browserDetectLanguage(text)
-        })
-        .then(function(lang) {
-          //exclude commonly misdetected languages
-          return ["cy", "eo"].includes(lang) ? null : lang
-        })
-    }
     return browserDetectLanguage(text)
-      .then(function(result) {
-        return result || serverDetectLanguage(text);
+      .then(function(lang) {
+        //exclude commonly misdetected languages
+        return ["cy", "eo"].includes(lang) ? null : lang
       })
   }
 
@@ -284,19 +274,6 @@ function Doc(source, onEnd) {
         return null;
       }
     })
-  }
-
-  async function serverDetectLanguage(text) {
-    try {
-      const service = await rxjs.firstValueFrom(fasttextObservable)
-      if (!service) return null
-      const [prediction] = await service.sendRequest("detectLanguage", {text})
-      return prediction?.language
-    }
-    catch (err) {
-      console.error(err)
-      return null
-    }
   }
 
   async function getSpeech(texts) {

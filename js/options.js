@@ -30,32 +30,6 @@
 
 
 
-  //account button
-  domReadyPromise
-    .then(() => {
-      $("#account-button")
-        .click(function() {
-          getAuthToken({interactive: true})
-            .then(token => brapi.tabs.create({url: config.webAppUrl + "/premium-voices.html?t=" + token}))
-            .catch(handleError)
-          return false;
-        })
-      $("#logout-button")
-        .click(function() {
-          clearAuthToken()
-          return false;
-        })
-    })
-
-  rxjs.combineLatest([
-      observeSetting("authToken").pipe(
-        rxjs.switchMap(token => token ? getAccountInfo(token) : Promise.resolve(null))
-      ),
-      domReadyPromise
-    ])
-    .subscribe(([account]) => showAccountInfo(account))
-
-
   domReadyPromise.then(() => {
     initSettingInfoPopup("rate-info-button", "rate-warning", "rate", "options_rate_information")
   })
@@ -74,16 +48,18 @@
   const voicesPopulatedObservable = rxjs.combineLatest([
     voices$,
     observeSetting("languages"),
+    observeSetting("geminiCreds"),
     brapi.i18n.getAcceptLanguages().catch(err => {console.error(err); return []}),
     domReadyPromise
   ]).pipe(
-      rxjs.tap(([voices, languages, acceptLangs]) => populateVoices(voices, {languages}, acceptLangs)),
+      rxjs.tap(([voices, languages, geminiCreds, acceptLangs]) => populateVoices(voices, {languages, geminiCreds}, acceptLangs)),
       rxjs.share()
     )
 
   rxjs.combineLatest([observeSetting("voiceName"), voicesPopulatedObservable])
     .subscribe(([voiceName]) => {
-      $("#voices").val(voiceName || "")
+      $("#voices").val(voiceName || "");
+      if ($("#voices").val() == null) $("#voices").val("");
     })
 
   domReadyPromise.then(() => {
@@ -292,6 +268,21 @@
         });
     })
 
+  function updateOptionsBackendUi(backend) {
+    const b = backend || "gemini-api";
+    const isGeminiFamily = b === "gemini-api" || b === "portal" || b === "cloud-tts";
+    const needsApiKey = b === "gemini-api" || b === "cloud-tts";
+    const isPortal = b === "portal";
+    const hasLocale = isGeminiFamily || b === "edge-tts" || b === "google-translate";
+    const hasVoiceSelect = b !== "google-translate";
+    $("#voice-label, #voice-control").toggle(hasVoiceSelect);
+    $("#gemini-key-label, #gemini-key-control").toggle(needsApiKey);
+    $("#portal-auth-label, #portal-auth-control").toggle(isPortal);
+    $("#gemini-model-label, #gemini-model-control").toggle(isGeminiFamily);
+    $("#gemini-lang-label, #gemini-lang-control").toggle(hasLocale);
+    $("#gemini-prompt-label, #gemini-prompt-control").toggle(isGeminiFamily);
+  }
+
   // Gemini TTS inline settings in Options
   rxjs.combineLatest([
     observeSetting("geminiCreds"),
@@ -315,14 +306,12 @@
     }
     $("#gemini-lang").val(langVal);
     $("#gemini-prompt").val(cfg.prompt != null ? cfg.prompt : defaults.prompt);
-    const isPortal = backend === "portal";
-    const isKeyless = backend === "google-translate" || backend === "phonon-webgpu" || backend === "edge-tts";
-    $("#gemini-key-label, #gemini-key-control").toggle(!isPortal && !isKeyless);
-    $("#portal-auth-label, #portal-auth-control").toggle(isPortal);
+    updateOptionsBackendUi(backend);
     $("#portal-token-status").text(gcpToken ? "Authorized" : "Not authorized");
   });
 
   domReadyPromise.then(() => {
+    $("#gemini-backend").on("change", () => updateOptionsBackendUi($("#gemini-backend").val()));
     $("#gemini-backend, #gemini-api-key, #gemini-model, #gemini-lang, #gemini-prompt")
       .on("change", saveGeminiOptions);
 
@@ -333,9 +322,9 @@
             handleError(new Error("Host permission for Google Cloud TTS portal was denied."));
             return;
           }
-          const s = await getSettings(["geminiConfig"]);
+          const s = await getSettings(["geminiCreds"]);
           await updateSettings({
-            geminiConfig: Object.assign({}, s.geminiConfig || {}, { backend: "portal" })
+            geminiCreds: Object.assign({}, s.geminiCreds || {}, { backend: "portal" })
           });
           await bgPageInvoke("authWavenet");
         })
@@ -426,24 +415,32 @@
       const langs = Object.keys(groupVoicesByLang(allVoices)).filter(x => accept.has(x))
       return langs.length ? langs : null
     })
-    var voices = !selectedLangs ? allVoices : allVoices.filter(
+    let voices = !selectedLangs ? allVoices : allVoices.filter(
       function(voice) {
         const voiceLanguages = getVoiceLanguages(voice)
         return !voiceLanguages
           || voiceLanguages.map(parseLang).some(({ lang }) => selectedLangs.includes(lang))
           || isGeminiTts(voice)
       });
+    if (!voices.length) voices = allVoices.slice();
 
     voices.sort(voiceSorter);
 
-    const geminiGroup = $("<optgroup>")
-      .attr("label", "Gemini TTS")
+    const backend = (settings.geminiCreds && settings.geminiCreds.backend) || "gemini-api";
+    const groupLabels = {
+      native: "Device Native TTS",
+      "phonon-webgpu": "Phonon 31M (WebGPU)",
+      "edge-tts": "Edge Neural TTS",
+      "google-translate": "Google Translate"
+    };
+    const voiceGroup = $("<optgroup>")
+      .attr("label", groupLabels[backend] || "Gemini TTS")
       .appendTo($("#voices"));
     voices.forEach(function(voice) {
       $("<option>")
         .val(voice.voiceName)
         .text(voice.voiceName)
-        .appendTo(geminiGroup);
+        .appendTo(voiceGroup);
     });
 
     $("<optgroup>").appendTo($("#voices"));
@@ -451,12 +448,8 @@
       .attr("label", brapi.i18n.getMessage("options_voicegroup_additional") || "Settings")
       .appendTo($("#voices"));
     $("<option>")
-      .val("@languages")
-      .text(brapi.i18n.getMessage("options_add_more_languages") || "Add more languages...")
-      .appendTo(additional)
-    $("<option>")
       .val("@custom")
-      .text("Configure Gemini TTS & Diagnostics...")
+      .text("Configure TTS Studio & Diagnostics...")
       .appendTo(additional)
   }
 
@@ -476,18 +469,6 @@
       $("#status").html(formatError(errInfo)).parent().show();
       $("#status a").click(function() {
         switch ($(this).attr("href")) {
-          case "#sign-in":
-            getAuthToken({interactive: true})
-              .then(function(token) {
-                if (token) {
-                  $("#test-voice").click();
-                  getAccountInfo(token).then(showAccountInfo);
-                }
-              })
-              .catch(function(err) {
-                $("#status").text(err.message).parent().show();
-              })
-            break;
           case "#auth-wavenet":
             brapi.permissions.request(config.wavenetPerms)
               .then(function(granted) {
@@ -520,16 +501,6 @@
     }
     else {
       $("#status").text(err.message).parent().show();
-    }
-  }
-
-  function showAccountInfo(account) {
-    if (account) {
-      $("#account-email").text(account.email);
-      $("#account-info").show();
-    }
-    else {
-      $("#account-info").hide();
     }
   }
 

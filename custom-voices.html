@@ -52,6 +52,7 @@
                 <option value="google-translate">Google Translate (Free, no API key)</option>
                 <option value="phonon-webgpu">Local WebGPU — Phonon 31M (English, no API key)</option>
                 <option value="edge-tts">Edge Neural TTS (Free, no API key)</option>
+                <option value="native">Device / Browser Native TTS (Offline, no API key)</option>
                 <option value="cloud-tts">Google Cloud TTS API Key (v1beta1)</option>
               </select>
             </div>
@@ -74,7 +75,7 @@
           </div>
 
           <div class="form-row">
-            <div class="form-group col-md-5">
+            <div class="form-group col-md-5" id="model-group">
               <label for="gemini-model">Model Name</label>
               <input type="text" class="form-control mono" id="gemini-model" placeholder="gemini-3.8-flash-lite-tts" />
               <div class="mt-1">
@@ -86,11 +87,11 @@
                 <button type="button" class="btn btn-sm btn-outline-secondary preset-btn model-preset" data-model="gemini-2.5-pro-preview-tts">2.5-pro-preview-tts</button>
               </div>
             </div>
-            <div class="form-group col-md-2">
+            <div class="form-group col-md-2" id="lang-group">
               <label for="gemini-lang">Locale</label>
               <input type="text" class="form-control mono" id="gemini-lang" placeholder="en-gb" />
             </div>
-            <div class="form-group col-md-3">
+            <div class="form-group col-md-3" id="encoding-group">
               <label for="gemini-encoding">Cloud TTS Encoding</label>
               <select class="form-control" id="gemini-encoding">
                 <option value="MP3">MP3</option>
@@ -98,18 +99,18 @@
                 <option value="LINEAR16">LINEAR16 (WAV)</option>
               </select>
             </div>
-            <div class="form-group col-md-2">
+            <div class="form-group col-md-2" id="chunk-size-group">
               <label for="gemini-chunk-size">Chunk Size (chars)</label>
               <input type="number" step="50" min="100" max="4000" class="form-control" id="gemini-chunk-size" />
             </div>
           </div>
 
           <div class="form-row">
-            <div class="form-group col-md-8">
+            <div class="form-group col-md-8" id="prompt-group">
               <label for="gemini-default-prompt">Style Instructions / Prompt</label>
               <input type="text" class="form-control" id="gemini-default-prompt" placeholder="Speak with a natural, warm Scottish accent." />
             </div>
-            <div class="form-group col-md-4">
+            <div class="form-group col-md-4" id="test-voice-group">
               <label for="test-voice-select">Test Base Voice</label>
               <select class="form-control" id="test-voice-select"></select>
             </div>

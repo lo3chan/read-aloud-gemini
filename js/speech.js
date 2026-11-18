@@ -49,12 +49,15 @@ function Speech(texts, options) {
   })
 
   function pickEngine() {
-    if (options.voice && isGeminiTts(options.voice)) return geminiTtsEngine;
+    if (options.voice && isNativeVoice(options.voice)) return browserTtsEngine;
     return geminiTtsEngine;
   }
 
   function getChunks(text) {
     var punctuator = createPunctuator(options.lang);
+    if (options.voice && isNativeVoice(options.voice)) {
+      return punctuator.getParagraphs(text).flatMap(paragraph => punctuator.getSentences(paragraph));
+    }
     const maxLen = Math.max(100, Math.min(4000, Number(options.chunkSize) || 750));
     if (text.length > 220) {
       const firstPass = new CharBreaker(Math.min(200, maxLen), punctuator, Math.min(120, maxLen)).breakText(text);
@@ -87,12 +90,12 @@ function Speech(texts, options) {
       statusId,
       navigationRevision,
       voiceName: options.voice.voiceName,
-      voiceLocation: "cloud",
+      voiceLocation: isNativeVoice(options.voice) ? "local" : "cloud",
       detectedLang: options.lang,
       voiceLanguages: getVoiceLanguages(options.voice),
       rate: options.rate || 1,
       isRTL: /^(ar|az|dv|he|iw|ku|fa|ur)\b/.test(options.lang),
-      engine: "Gemini"
+      engine: isNativeVoice(options.voice) ? "Browser" : "Gemini"
     }
   }
 

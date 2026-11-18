@@ -27,10 +27,10 @@
     </h2>
 
     <div class="layout">
-      <div>
+      <div id="voice-label">
         <span data-i18n="options_voice_label"></span>
       </div>
-      <div class="voice-selector">
+      <div id="voice-control" class="voice-selector">
         <select id="voices" class="form-control">
         </select>
       </div>
@@ -86,6 +86,7 @@
         <option value="google-translate">Google Translate (Free, No Key)</option>
         <option value="phonon-webgpu">Local WebGPU — Phonon 31M (English, No Key)</option>
         <option value="edge-tts">Edge Neural TTS (Free, No Key)</option>
+        <option value="native">Device / Browser Native TTS (Offline, No Key)</option>
         <option value="cloud-tts">Google Cloud TTS API Key</option>
       </select>
 
@@ -104,41 +105,47 @@
         <small id="portal-token-status" class="ml-2 text-muted"></small>
       </div>
 
-      <div>
+      <div id="gemini-model-label">
         <span>Model</span>
       </div>
-      <select id="gemini-model" class="form-control">
-        <option value="gemini-3.8-flash-lite-tts">Gemini 3.8 Flash Lite TTS (Recommended)</option>
-        <option value="gemini-3.8-flash-tts">Gemini 3.8 Flash TTS</option>
-        <option value="tts">tts (Auto TTS Alias)</option>
-        <option value="gemini-3.1-flash-tts-preview">Gemini 3.1 Flash TTS (preview)</option>
-        <option value="gemini-2.5-flash-preview-tts">Gemini 2.5 Flash TTS (preview)</option>
-        <option value="gemini-2.5-pro-preview-tts">Gemini 2.5 Pro TTS (preview)</option>
-      </select>
+      <div id="gemini-model-control">
+        <select id="gemini-model" class="form-control">
+          <option value="gemini-3.8-flash-lite-tts">Gemini 3.8 Flash Lite TTS (Recommended)</option>
+          <option value="gemini-3.8-flash-tts">Gemini 3.8 Flash TTS</option>
+          <option value="tts">tts (Auto TTS Alias)</option>
+          <option value="gemini-3.1-flash-tts-preview">Gemini 3.1 Flash TTS (preview)</option>
+          <option value="gemini-2.5-flash-preview-tts">Gemini 2.5 Flash TTS (preview)</option>
+          <option value="gemini-2.5-pro-preview-tts">Gemini 2.5 Pro TTS (preview)</option>
+        </select>
+      </div>
 
-      <div>
+      <div id="gemini-lang-label">
         <span>Locale</span>
       </div>
-      <select id="gemini-lang" class="form-control">
-        <option value="en-gb">English (United Kingdom) - en-gb</option>
-        <option value="en-us">English (United States) - en-us</option>
-        <option value="en-au">English (Australia) - en-au</option>
-        <option value="en-in">English (India) - en-in</option>
-        <option value="es-es">Spanish (Spain) - es-es</option>
-        <option value="es-us">Spanish (US) - es-us</option>
-        <option value="fr-fr">French (France) - fr-fr</option>
-        <option value="de-de">German (Germany) - de-de</option>
-        <option value="it-it">Italian (Italy) - it-it</option>
-        <option value="ja-jp">Japanese (Japan) - ja-jp</option>
-        <option value="ko-kr">Korean (South Korea) - ko-kr</option>
-        <option value="pt-br">Portuguese (Brazil) - pt-br</option>
-        <option value="zh-cn">Chinese (Mandarin) - zh-cn</option>
-      </select>
+      <div id="gemini-lang-control">
+        <select id="gemini-lang" class="form-control">
+          <option value="en-gb">English (United Kingdom) - en-gb</option>
+          <option value="en-us">English (United States) - en-us</option>
+          <option value="en-au">English (Australia) - en-au</option>
+          <option value="en-in">English (India) - en-in</option>
+          <option value="es-es">Spanish (Spain) - es-es</option>
+          <option value="es-us">Spanish (US) - es-us</option>
+          <option value="fr-fr">French (France) - fr-fr</option>
+          <option value="de-de">German (Germany) - de-de</option>
+          <option value="it-it">Italian (Italy) - it-it</option>
+          <option value="ja-jp">Japanese (Japan) - ja-jp</option>
+          <option value="ko-kr">Korean (South Korea) - ko-kr</option>
+          <option value="pt-br">Portuguese (Brazil) - pt-br</option>
+          <option value="zh-cn">Chinese (Mandarin) - zh-cn</option>
+        </select>
+      </div>
 
-      <div>
+      <div id="gemini-prompt-label">
         <span>Instructions</span>
       </div>
-      <input id="gemini-prompt" type="text" class="form-control" placeholder="Speak with a natural, warm Scottish accent." />
+      <div id="gemini-prompt-control">
+        <input id="gemini-prompt" type="text" class="form-control" placeholder="Speak with a natural, warm Scottish accent." />
+      </div>
     </div>
 
     <div class="form-group buttons">

@@ -220,11 +220,12 @@ async function makeMath() {
   const elems = $(math.selector).get()
   if (!elems.length) return null
 
-  //create speech surrogates
+  //create speech surrogates locally without external backend
   try {
-    const xmls = elems.map(math.getXML)
-    const texts = await ajaxPost(config.serviceUrl + "/read-aloud/mathml", xmls, "json").then(JSON.parse)
-    elems.forEach((el, i) => $("<span>").addClass("readaloud-mathml").text(texts[i] || "math expression").insertBefore(el))
+    elems.forEach(el => {
+      const alt = el.getAttribute("alttext") || el.getAttribute("aria-label") || (el.textContent || "").trim();
+      $("<span>").addClass("readaloud-mathml").text(alt || "math expression").insertBefore(el);
+    })
   }
   catch (err) {
     console.error(err)

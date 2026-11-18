@@ -34,6 +34,105 @@ const cache = {
 };
 
 
+function BrowserTtsEngine() {
+  let initialized = false;
+  this.speak = function(text, options, onEvent) {
+    if (!initialized) {
+      brapi.tts.stop();
+      initialized = true;
+    }
+    const voiceName = options.voice && options.voice.voiceName !== "System Default Voice"
+      ? options.voice.voiceName
+      : undefined;
+    brapi.tts.speak(text, {
+      voiceName,
+      lang: options.lang || (options.voice && options.voice.lang),
+      rate: options.rate,
+      pitch: options.pitch,
+      volume: options.volume,
+      requiredEventTypes: ["start", "end"],
+      desiredEventTypes: ["start", "end", "error"],
+      onEvent: onEvent
+    });
+  };
+  this.stop = function() {
+    brapi.tts.stop();
+  };
+  this.pause = function() {
+    brapi.tts.pause();
+  };
+  this.resume = function() {
+    brapi.tts.resume();
+  };
+  this.isSpeaking = function(cb) {
+    brapi.tts.isSpeaking(cb);
+  };
+  this.getVoices = async function() {
+    const voices = await new Promise(f => brapi.tts.getVoices(f)) || [];
+    return voices.map(v => Object.assign({}, v, {isNative: true}));
+  };
+}
+
+function WebSpeechEngine() {
+  var utter;
+  this.speak = function(text, options, onEvent) {
+    utter = new SpeechSynthesisUtterance();
+    utter.text = text;
+    if (options.voice && typeof SpeechSynthesisVoice !== "undefined" && options.voice instanceof SpeechSynthesisVoice) {
+      utter.voice = options.voice;
+    } else if (options.voice && options.voice.voiceName && typeof speechSynthesis !== "undefined") {
+      const match = (speechSynthesis.getVoices() || []).find(v => v.name === options.voice.voiceName);
+      if (match) utter.voice = match;
+    }
+    if (options.lang) utter.lang = options.lang;
+    if (options.pitch != null) utter.pitch = options.pitch;
+    if (options.rate != null) utter.rate = options.rate;
+    if (options.volume != null) utter.volume = options.volume;
+    utter.onstart = onEvent.bind(null, {type: "start", charIndex: 0});
+    utter.onend = onEvent.bind(null, {type: "end", charIndex: text.length});
+    utter.onerror = function(event) {
+      if (event.error == "canceled" || event.error == "interrupted") return;
+      onEvent({type: "error", error: new Error(event.error)});
+    };
+    speechSynthesis.cancel();
+    speechSynthesis.speak(utter);
+  };
+  this.stop = function() {
+    if (utter) utter.onend = null;
+    speechSynthesis.cancel();
+  };
+  this.pause = function() {
+    speechSynthesis.pause();
+  };
+  this.resume = function() {
+    speechSynthesis.resume();
+  };
+  this.isSpeaking = function(callback) {
+    callback(speechSynthesis.speaking);
+  };
+  this.getVoices = function() {
+    return promiseTimeout(1500, "Timeout WebSpeech getVoices", new Promise(function(fulfill) {
+      var voices = speechSynthesis.getVoices() || [];
+      if (voices.length) fulfill(voices);
+      else speechSynthesis.onvoiceschanged = function() {
+        fulfill(speechSynthesis.getVoices() || []);
+      };
+    }))
+    .then(function(voices) {
+      for (const voice of voices) {
+        voice.voiceName = voice.name;
+        voice.remote = !voice.localService;
+        voice.isNative = true;
+      }
+      return voices;
+    })
+    .catch(function(err) {
+      console.error(err);
+      return [];
+    });
+  };
+}
+
 function DummyTtsEngine() {
   this.speak = function() {
     return rxjs.EMPTY;
@@ -53,6 +152,70 @@ const GEMINI_PREBUILT_VOICES = [
   "Sulafat", "Umbriel", "Vindemiatrix", "Zephyr", "Zubenelgenubi"
 ];
 
+const EDGE_NEURAL_VOICES = [
+  { voiceName: "en-GB-SoniaNeural", lang: "en-gb" },
+  { voiceName: "en-GB-RyanNeural", lang: "en-gb" },
+  { voiceName: "en-GB-LibbyNeural", lang: "en-gb" },
+  { voiceName: "en-US-JennyNeural", lang: "en-us" },
+  { voiceName: "en-US-GuyNeural", lang: "en-us" },
+  { voiceName: "en-US-AriaNeural", lang: "en-us" },
+  { voiceName: "en-AU-NatashaNeural", lang: "en-au" },
+  { voiceName: "en-AU-WilliamNeural", lang: "en-au" },
+  { voiceName: "en-IN-NeerjaNeural", lang: "en-in" },
+  { voiceName: "en-IN-PrabhatNeural", lang: "en-in" },
+  { voiceName: "es-ES-ElviraNeural", lang: "es-es" },
+  { voiceName: "es-US-PalomaNeural", lang: "es-us" },
+  { voiceName: "fr-FR-DeniseNeural", lang: "fr-fr" },
+  { voiceName: "de-DE-KatjaNeural", lang: "de-de" },
+  { voiceName: "it-IT-ElsaNeural", lang: "it-it" },
+  { voiceName: "ja-JP-NanamiNeural", lang: "ja-jp" },
+  { voiceName: "ko-KR-SunHiNeural", lang: "ko-kr" },
+  { voiceName: "pt-BR-FranciscaNeural", lang: "pt-br" },
+  { voiceName: "zh-CN-XiaoxiaoNeural", lang: "zh-cn" }
+];
+
+const PHONON_VOICES = [
+  "Delia", "Easton", "Zoey", "Juniper", "Everly", "Harper", "Hadley",
+  "Micah", "Trevor", "Russell", "Preston", "Miles",
+  "Maeve", "Freya", "Pippa", "Elodie-Rose", "Imogen", "Lottie", "Bryony",
+  "Alfie", "Hugh", "Edwin", "Spencer", "Toby", "Teddy",
+  "Captain Silas Blackwater", "Morwenna of the Deep", "Old Mortlake",
+  "Azgorath", "Fennick the Young Elf", "The Thing Under the Stairs",
+  "Vyrmathrax the Ancient", "Grub the Ogre", "Master Aldric",
+  "The Snow Queen", "Sir Bramwell", "Fairy Godmother"
+];
+
+function speakWithBrowserEngine(text, options, playbackState$) {
+  return playbackState$.pipe(
+    rxjs.distinctUntilChanged(),
+    rxjs.scan((playing$, state) => {
+      if (state == "resumed") {
+        if (playing$) {
+          browserTtsEngine.resume();
+          return playing$;
+        }
+        return new rxjs.Observable(observer => {
+          browserTtsEngine.speak(text, options, event => {
+            if (event.type == "error") observer.error(event.error || new Error(event.errorMessage || "Native TTS error"));
+            else observer.next(event);
+          });
+        });
+      }
+      if (state == "paused") {
+        if (playing$) {
+          browserTtsEngine.pause();
+          return playing$;
+        }
+        return null;
+      }
+      return playing$;
+    }, null),
+    rxjs.distinctUntilChanged(),
+    rxjs.switchMap(playing$ => playing$ ? playing$.pipe(rxjs.finalize(() => browserTtsEngine.stop())) : rxjs.EMPTY),
+    rxjs.takeWhile(event => event.type != "end", true)
+  );
+}
+
 const GEMINI_DEFAULT_CONFIG = {
   backend: "gemini-api",
   apiKey: "",
@@ -66,38 +229,150 @@ const GEMINI_DEFAULT_CONFIG = {
 
 function GeminiTtsEngine() {
   this.prebuiltVoices = GEMINI_PREBUILT_VOICES;
+  this.edgeVoices = EDGE_NEURAL_VOICES;
+  this.phononVoices = PHONON_VOICES;
   this.defaultConfig = GEMINI_DEFAULT_CONFIG;
   this.maxTelemetryEntries = 100;
 
   let telemetryQueue = Promise.resolve();
 
   this.speak = function(utterance, options, playbackState$) {
+    if (options && options.voice && options.voice.isNative) {
+      return speakWithBrowserEngine(utterance, options, playbackState$);
+    }
     const urlPromise = getAudioUrl(utterance, options);
     const playFn = typeof playAudio !== "undefined" ? playAudio : playAudioHere;
     return playFn(urlPromise, options, playbackState$);
   };
 
   this.prefetch = function(utterance, options) {
+    if (options && options.voice && options.voice.isNative) return;
     getAudioUrl(utterance, options).catch(console.error);
   };
 
-  this.getVoices = async function() {
-    const creds = await getNormalizedCreds();
+  this.getVoicesForBackend = async function(backend, languageCode) {
+    const lang = (languageCode || "en-gb").toLowerCase();
+    if (backend === "native") {
+      const nativeVoices = await browserTtsEngine.getVoices();
+      if (!nativeVoices || !nativeVoices.length) {
+        return [{
+          voiceName: "System Default Voice",
+          lang: languageCode || "en-US",
+          langs: [languageCode || "en-US"],
+          isNative: true
+        }];
+      }
+      return nativeVoices.map(v => Object.assign({}, v, {isNative: true}));
+    }
+    if (backend === "phonon-webgpu") {
+      return PHONON_VOICES.map(v => ({
+        voiceName: v,
+        lang: "en-us",
+        langs: ["en-us"],
+        geminiVoice: v
+      }));
+    }
+    if (backend === "edge-tts") {
+      const matched = EDGE_NEURAL_VOICES.filter(v => v.lang === lang || v.lang.startsWith(lang.split("-")[0] + "-"));
+      const list = matched.length ? matched : EDGE_NEURAL_VOICES;
+      return list.map(v => ({
+        voiceName: v.voiceName,
+        lang: v.lang,
+        langs: [v.lang],
+        geminiVoice: v.voiceName
+      }));
+    }
+    if (backend === "google-translate") {
+      return [{
+        voiceName: "Google Translate (" + (languageCode || "en-gb") + ")",
+        lang: languageCode || "en-gb",
+        langs: [languageCode || "en-gb"],
+        geminiVoice: "GoogleTranslate"
+      }];
+    }
     return GEMINI_PREBUILT_VOICES.map(voice => ({
       voiceName: "Gemini " + voice,
-      lang: creds.languageCode || "en-gb",
-      langs: [creds.languageCode || "en-gb"],
+      lang: languageCode || "en-gb",
+      langs: [languageCode || "en-gb"],
       geminiVoice: voice
     }));
   };
 
+  this.getVoices = async function() {
+    const creds = await getNormalizedCreds();
+    return this.getVoicesForBackend(creds.backend, creds.languageCode);
+  };
+
   this.test = async function(rawCreds, sampleText, voiceName) {
     const creds = normalizeCreds(rawCreds);
-    if (creds.backend !== "portal" && creds.backend !== "google-translate" && creds.backend !== "phonon-webgpu" && creds.backend !== "edge-tts" && !creds.apiKey) {
+    if (creds.backend !== "portal" && creds.backend !== "google-translate" && creds.backend !== "phonon-webgpu" && creds.backend !== "edge-tts" && creds.backend !== "native" && !creds.apiKey) {
       throw new Error("API key is required for this backend.");
     }
-    const voice = voiceName || "Achernar";
+    const voice = voiceName || (creds.backend === "native" ? "System Default Voice" : "Achernar");
     const text = sampleText || "Hello! This is a test of the Gemini Scottish text to speech voice.";
+    if (creds.backend === "native") {
+      const start = Date.now();
+      try {
+        if (browserTtsEngine && !(browserTtsEngine instanceof DummyTtsEngine)) {
+          const nativeVoices = await browserTtsEngine.getVoices();
+          const chosen = (voiceName && nativeVoices.find(v => v.voiceName === voiceName))
+            || nativeVoices[0]
+            || {voiceName: voice, lang: creds.languageCode || "en-US", isNative: true};
+          await new Promise((resolve, reject) => {
+            let settled = false;
+            browserTtsEngine.speak(text, {
+              voice: chosen,
+              lang: chosen.lang || creds.languageCode || "en-US",
+              rate: 1,
+              pitch: 1,
+              volume: 1
+            }, ev => {
+              if (settled) return;
+              if (ev.type === "error") {
+                settled = true;
+                reject(ev.error || new Error(ev.errorMessage || "Native TTS error"));
+              } else if (ev.type === "end") {
+                settled = true;
+                resolve();
+              }
+            });
+          });
+        }
+        await recordTelemetry({
+          status: "ok",
+          backend: creds.backend,
+          model: "native",
+          voice,
+          languageCode: creds.languageCode || "en-US",
+          prompt: "",
+          textLength: text.length,
+          textPreview: text.slice(0, 80),
+          durationMs: Date.now() - start,
+          httpStatus: 200,
+          mimeType: "native/tts",
+          audioBytes: 0,
+          error: null
+        });
+        return {httpStatus: 200, mimeType: "native/tts", audioBytes: 0, url: ""};
+      } catch (err) {
+        await recordTelemetry({
+          status: "error",
+          backend: creds.backend,
+          model: "native",
+          voice,
+          languageCode: creds.languageCode || "en-US",
+          prompt: "",
+          textLength: text.length,
+          textPreview: text.slice(0, 80),
+          durationMs: Date.now() - start,
+          httpStatus: null,
+          mimeType: null,
+          audioBytes: 0,
+          error: err.message
+        });
+        throw err;
+      }
+    }
     return synthesizeWithTelemetry(text, creds, voice, {});
   };
 
@@ -126,7 +401,7 @@ function GeminiTtsEngine() {
 
   function normalizeCreds(raw) {
     const src = raw || {};
-    const backend = (src.backend === "cloud-tts" || src.backend === "portal" || src.backend === "google-translate" || src.backend === "phonon-webgpu" || src.backend === "edge-tts")
+    const backend = (src.backend === "cloud-tts" || src.backend === "portal" || src.backend === "google-translate" || src.backend === "phonon-webgpu" || src.backend === "edge-tts" || src.backend === "native")
       ? src.backend
       : "gemini-api";
     const prompt = src.prompt != null
@@ -195,7 +470,7 @@ function GeminiTtsEngine() {
   function getAudioUrl(text, options) {
     assert(text && options && options.voice);
     return getNormalizedCreds().then(creds => {
-      if (creds.backend !== "portal" && creds.backend !== "google-translate" && creds.backend !== "phonon-webgpu" && creds.backend !== "edge-tts" && !creds.apiKey) {
+      if (creds.backend !== "portal" && creds.backend !== "google-translate" && creds.backend !== "phonon-webgpu" && creds.backend !== "edge-tts" && creds.backend !== "native" && !creds.apiKey) {
         throw new Error(JSON.stringify({code: "error_gemini_not_configured"}));
       }
       const voiceName = resolveVoiceName(options.voice);
@@ -774,5 +1049,8 @@ function base64ToUint8Array(base64) {
   return bytes;
 }
 
+var browserTtsEngine = (typeof brapi !== "undefined" && brapi.tts)
+  ? new BrowserTtsEngine()
+  : (typeof speechSynthesis !== "undefined" ? new WebSpeechEngine() : new DummyTtsEngine());
 var geminiTtsEngine = new GeminiTtsEngine();
 var dummyTtsEngine = new DummyTtsEngine();

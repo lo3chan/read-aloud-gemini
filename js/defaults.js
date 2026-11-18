@@ -155,6 +155,12 @@ function observeSetting(name) {
  */
 const voices$ = rxjs.combineLatest({
   geminiCreds: observeSetting("geminiCreds"),
+  ttsVoicesChanged: brapi.tts?.onVoicesChanged
+    ? rxjs.fromEventPattern(
+        h => brapi.tts.onVoicesChanged.addListener(h),
+        h => brapi.tts.onVoicesChanged.removeListener(h)
+      ).pipe(rxjs.debounceTime(300), rxjs.startWith(null))
+    : rxjs.of(null)
 }).pipe(
   rxjs.exhaustMap(() => geminiTtsEngine.getVoices()),
   rxjs.shareReplay(1)
@@ -193,19 +199,11 @@ function isOfflineVoice(voice) {
 }
 
 function isGeminiTts(voice) {
-  return Boolean(voice && /^Gemini /.test(voice.voiceName));
-}
-
-function isUseMyPhone(voice) {
-  return false;
+  return Boolean(voice && !isNativeVoice(voice));
 }
 
 function isNativeVoice(voice) {
-  return !isGeminiTts(voice);
-}
-
-function isPremiumVoice(voice) {
-  return false;
+  return Boolean(voice && voice.isNative);
 }
 
 async function getSpeechVoice(voiceName, lang) {
@@ -653,81 +651,6 @@ function StateMachine(states) {
   }
 }
 
-function getAuthToken(opts) {
-  if (!opts) opts = {};
-  return getSettings(["authToken"])
-    .then(function(settings) {
-      return settings.authToken || (opts.interactive ? interactiveLogin().then(extraAction(saveToken)) : null);
-    })
-  //Note: Cognito webAuthFlow is always interactive (if user already logged in, it shows button "Sign in as <email>" or  "Continue with Google/Facebook/etc")
-  function interactiveLogin() {
-    return new Promise(function(fulfill, reject) {
-      if (!brapi.identity || !brapi.identity.launchWebAuthFlow) return fulfill(null);
-      brapi.identity.launchWebAuthFlow({
-        interactive: true,
-        url: config.webAppUrl + "/login.html?returnUrl=" + brapi.identity.getRedirectURL()
-      },
-      function(responseUrl) {
-        if (responseUrl) {
-          var index = responseUrl.indexOf("?");
-          var res = parseQueryString(responseUrl.substr(index));
-          if (res.error) reject(new Error(res.error_description || res.error));
-          else fulfill(res.token);
-        }
-        else {
-          if (brapi.runtime.lastError) reject(new Error(brapi.runtime.lastError.message));
-          else fulfill(null);
-        }
-      })
-    })
-  }
-  function saveToken(token) {
-    if (token) return updateSettings({authToken: token});
-  }
-}
-
-function clearAuthToken() {
-  return clearSettings(["authToken"])
-    .then(function() {
-      return new Promise(function(fulfill) {
-        brapi.identity.launchWebAuthFlow({
-          interactive: false,
-          url: config.webAppUrl + "/logout.html?returnUrl=" + brapi.identity.getRedirectURL()
-        },
-        function(responseUrl) {
-          if (responseUrl) {
-            var index = responseUrl.indexOf("?");
-            var res = index != -1 ? parseQueryString(responseUrl.substr(index)) : {};
-            if (res.error) reject(new Error(res.error_description || res.error));
-            else fulfill();
-          }
-          else {
-            if (brapi.runtime.lastError) console.warn(new Error(brapi.runtime.lastError.message));
-            fulfill();
-          }
-        })
-      })
-    })
-}
-
-async function getAccountInfo(authToken) {
-  const res = await fetch(config.serviceUrl + "/read-aloud/get-account?t=" + authToken)
-  if (res.ok) {
-    const account = await res.json()
-    account.balance += account.freeBalance;
-    return account;
-  }
-  else {
-    if (res.status == 401) {
-      await clearSettings(["authToken"])
-      return null
-    }
-    else {
-      throw new Error("Can't fetch account info, server returns " + res.status)
-    }
-  }
-}
-
 function getAllFrames(tabId) {
   return new Promise(function(fulfill) {
     brapi.webNavigation.getAllFrames({tabId: tabId}, fulfill);
@@ -957,10 +880,6 @@ function makeSilenceTrack() {
       stateMachine.trigger("stop")
     }
   }
-}
-
-async function getRemoteConfig() {
-  return {}
 }
 
 /**

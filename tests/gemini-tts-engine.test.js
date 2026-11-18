@@ -5,7 +5,7 @@ const vm = require('node:vm');
 
 const engineSource = readFileSync(require.resolve('../js/tts-engines.js'), 'utf8');
 
-function createEngineContext(creds, fetchImpl, initialTelemetry = []) {
+function createEngineContext(creds, fetchImpl, initialTelemetry = [], extraGlobals = {}) {
   const storage = {
     geminiCreds: creds,
     geminiTelemetry: initialTelemetry
@@ -38,6 +38,7 @@ function createEngineContext(creds, fetchImpl, initialTelemetry = []) {
     playAudio: promise => promise,
     setTimeout,
     clearTimeout,
+    ...extraGlobals
   });
   vm.runInContext(engineSource, context);
   return {
@@ -520,4 +521,82 @@ test('edge-tts backend routes to offscreen synthesizeEdgeTts when window is abse
   assert.equal(getCreatedBlob().type, 'audio/mpeg');
   assert.equal(storage.geminiTelemetry[0].status, 'ok');
   assert.equal(storage.geminiTelemetry[0].backend, 'edge-tts');
+});
+
+test('getVoicesForBackend returns backend-specific voice catalogs', async () => {
+  const {engine} = createEngineContext(
+    {backend: 'gemini-api', languageCode: 'en-gb'},
+    async () => ({}),
+    [],
+    {
+      brapi: {
+        tts: {
+          getVoices: cb => cb([
+            {voiceName: 'OS British Voice', lang: 'en-GB', remote: false}
+          ]),
+          speak() {},
+          stop() {},
+          pause() {},
+          resume() {},
+          isSpeaking() {}
+        }
+      }
+    }
+  );
+
+  const geminiVoices = await engine.getVoicesForBackend('gemini-api', 'en-gb');
+  assert.equal(geminiVoices[0].voiceName, 'Gemini Achernar');
+
+  const edgeVoices = await engine.getVoicesForBackend('edge-tts', 'en-gb');
+  assert.ok(edgeVoices.some(v => v.voiceName === 'en-GB-SoniaNeural'));
+  assert.ok(!edgeVoices.some(v => v.voiceName === 'ja-JP-NanamiNeural'));
+
+  const phononVoices = await engine.getVoicesForBackend('phonon-webgpu', 'en-gb');
+  assert.ok(phononVoices.some(v => v.voiceName === 'Delia'));
+  assert.ok(phononVoices.some(v => v.voiceName === 'Easton'));
+
+  const translateVoices = await engine.getVoicesForBackend('google-translate', 'fr-fr');
+  assert.equal(translateVoices.length, 1);
+  assert.equal(translateVoices[0].geminiVoice, 'GoogleTranslate');
+
+  const nativeVoices = await engine.getVoicesForBackend('native', 'en-gb');
+  assert.equal(nativeVoices.length, 1);
+  assert.equal(nativeVoices[0].voiceName, 'OS British Voice');
+  assert.equal(nativeVoices[0].isNative, true);
+});
+
+test('native backend tests BrowserTtsEngine without API key and records telemetry', async () => {
+  const spoken = [];
+  const {engine, storage} = createEngineContext(
+    {backend: 'native', languageCode: 'en-GB', apiKey: ''},
+    async () => {
+      throw new Error('fetch should not be called for native backend');
+    },
+    [],
+    {
+      brapi: {
+        tts: {
+          getVoices: cb => cb([{voiceName: 'OS Voice 1', lang: 'en-GB'}]),
+          speak: (text, opts) => {
+            spoken.push({text, opts});
+            opts.onEvent({type: 'start', charIndex: 0});
+            opts.onEvent({type: 'end', charIndex: text.length});
+          },
+          stop() {},
+          pause() {},
+          resume() {},
+          isSpeaking() {}
+        }
+      }
+    }
+  );
+
+  const res = await engine.test(storage.geminiCreds, 'Native voice check.', 'OS Voice 1');
+  assert.equal(res.httpStatus, 200);
+  assert.equal(res.mimeType, 'native/tts');
+  assert.equal(spoken.length, 1);
+  assert.equal(spoken[0].text, 'Native voice check.');
+  assert.equal(spoken[0].opts.voiceName, 'OS Voice 1');
+  assert.equal(storage.geminiTelemetry[0].status, 'ok');
+  assert.equal(storage.geminiTelemetry[0].backend, 'native');
 });
