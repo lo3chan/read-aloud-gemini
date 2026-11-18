@@ -79,6 +79,8 @@ function applyConfigToForm(raw) {
     badge.removeClass("badge-secondary").addClass("badge-primary").text("Cloud Portal Proxy");
   } else if (cfg.backend === "google-translate") {
     badge.removeClass("badge-secondary").addClass("badge-primary").text("Google Translate");
+  } else if (cfg.backend === "phonon-webgpu") {
+    badge.removeClass("badge-secondary").addClass("badge-primary").text("Phonon 31M (WebGPU)");
   } else if (cfg.backend === "custom" && cfg.customUrl) {
     badge.removeClass("badge-secondary").addClass("badge-primary").text("OpenAI-Compatible TTS");
   } else if (cfg.apiKey) {
@@ -93,8 +95,8 @@ function updateBackendUi() {
   const backend = $("#gemini-backend").val();
   const isPortal = backend === "portal";
   const isCustom = backend === "custom";
-  const isTranslate = backend === "google-translate";
-  $("#api-key-group").toggle(!isPortal && !isTranslate);
+  const isKeyless = backend === "google-translate" || backend === "phonon-webgpu";
+  $("#api-key-group").toggle(!isPortal && !isKeyless);
   $("#portal-auth-group").toggle(isPortal);
   $("#custom-url-group").toggle(isCustom);
   $("#api-key-hint").text(isCustom ? "(Optional Bearer token for authenticated endpoints)" : "");
@@ -138,7 +140,7 @@ async function saveConfig() {
         showError("Custom Backend URL is required.");
         return;
       }
-    } else if (geminiCreds.backend !== "portal" && geminiCreds.backend !== "google-translate" && !geminiCreds.apiKey) {
+    } else if (geminiCreds.backend !== "portal" && geminiCreds.backend !== "google-translate" && geminiCreds.backend !== "phonon-webgpu" && !geminiCreds.apiKey) {
       await clearSettings(["geminiCreds"]);
       applyConfigToForm(null);
       showSuccess("Gemini TTS disabled (API key cleared).");

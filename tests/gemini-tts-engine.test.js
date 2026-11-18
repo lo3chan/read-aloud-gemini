@@ -43,7 +43,8 @@ function createEngineContext(creds, fetchImpl, initialTelemetry = []) {
   return {
     engine: context.geminiTtsEngine,
     storage,
-    getCreatedBlob: () => createdBlob
+    getCreatedBlob: () => createdBlob,
+    context
   };
 }
 
@@ -545,4 +546,48 @@ test('google-translate backend works without API key and splits text into <=200 
   assert.equal(getCreatedBlob().parts[0].byteLength, 8);
   assert.equal(storage.geminiTelemetry[0].status, 'ok');
   assert.equal(storage.geminiTelemetry[0].backend, 'google-translate');
+});
+
+test('phonon-webgpu backend routes to offscreen synthesizePhonon when navigator.gpu is absent', async () => {
+  let offscreenEnsured = false;
+  const sentMessages = [];
+  const {engine, storage, context, getCreatedBlob} = createEngineContext(
+    {
+      backend: 'phonon-webgpu',
+      languageCode: 'en-gb',
+      apiKey: ''
+    },
+    async () => {
+      throw new Error('fetch should not be called for phonon-webgpu');
+    }
+  );
+
+  context.handlers = {
+    ensureOffscreen: async () => {
+      offscreenEnsured = true;
+    }
+  };
+  context.brapi = {
+    runtime: {
+      sendMessage: async (msg) => {
+        sentMessages.push(msg);
+        return {
+          base64: Buffer.from('RIFFtestWAV').toString('base64'),
+          mimeType: 'audio/wav'
+        };
+      }
+    }
+  };
+
+  const result = await engine.test(storage.geminiCreds, 'Hello Phonon WebGPU.', 'Achernar');
+  assert.equal(offscreenEnsured, true);
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0].dest, 'offscreen');
+  assert.equal(sentMessages[0].method, 'synthesizePhonon');
+  assert.equal(sentMessages[0].args[0], 'Hello Phonon WebGPU.');
+  assert.equal(sentMessages[0].args[1], 'Achernar');
+  assert.equal(result.mimeType, 'audio/wav');
+  assert.equal(getCreatedBlob().type, 'audio/wav');
+  assert.equal(storage.geminiTelemetry[0].status, 'ok');
+  assert.equal(storage.geminiTelemetry[0].backend, 'phonon-webgpu');
 });

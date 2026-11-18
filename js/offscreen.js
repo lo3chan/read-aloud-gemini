@@ -45,8 +45,19 @@
     return true
   }
 
+  async function synthesizePhonon(text, voiceName, speed) {
+    if (!globalThis.phononBridge) {
+      throw new Error("Phonon WebGPU bridge is not loaded in offscreen document.");
+    }
+    const result = await globalThis.phononBridge.synthesize(text, voiceName, speed);
+    return {
+      base64: globalThis.phononBridge.uint8ToBase64(result.bytes),
+      mimeType: result.mimeType || "audio/wav"
+    };
+  }
+
   // Register only after state and the audio subscription are initialized.
-  registerMessageListener("offscreen", {ping: () => true, play, pause, stop})
+  registerMessageListener("offscreen", {ping: () => true, play, pause, stop, synthesizePhonon})
 
   async function sendToPlayer(message) {
     message.dest = "player"

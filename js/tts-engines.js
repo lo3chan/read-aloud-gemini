@@ -98,7 +98,7 @@ function GeminiTtsEngine() {
       if (!creds.customUrl) {
         throw new Error("Backend URL is required for the custom backend.");
       }
-    } else if (creds.backend !== "portal" && creds.backend !== "google-translate" && !creds.apiKey) {
+    } else if (creds.backend !== "portal" && creds.backend !== "google-translate" && creds.backend !== "phonon-webgpu" && !creds.apiKey) {
       throw new Error("API key is required for this backend.");
     }
     const voice = voiceName || "Achernar";
@@ -132,7 +132,7 @@ function GeminiTtsEngine() {
 
   function normalizeCreds(raw) {
     const src = raw || {};
-    const backend = (src.backend === "cloud-tts" || src.backend === "portal" || src.backend === "google-translate" || src.backend === "custom")
+    const backend = (src.backend === "cloud-tts" || src.backend === "portal" || src.backend === "google-translate" || src.backend === "phonon-webgpu" || src.backend === "custom")
       ? src.backend
       : "gemini-api";
     const prompt = src.prompt != null
@@ -206,7 +206,7 @@ function GeminiTtsEngine() {
         if (!creds.customUrl) {
           throw new Error(JSON.stringify({code: "error_gemini_not_configured"}));
         }
-      } else if (creds.backend !== "portal" && creds.backend !== "google-translate" && !creds.apiKey) {
+      } else if (creds.backend !== "portal" && creds.backend !== "google-translate" && creds.backend !== "phonon-webgpu" && !creds.apiKey) {
         throw new Error(JSON.stringify({code: "error_gemini_not_configured"}));
       }
       const voiceName = resolveVoiceName(options.voice);
@@ -289,6 +289,8 @@ function GeminiTtsEngine() {
         return callPortalTts(cleanText, creds, voiceName, options);
       } else if (creds.backend === "google-translate") {
         return callGoogleTranslateTts(cleanText, creds, options);
+      } else if (creds.backend === "phonon-webgpu") {
+        return callPhononWebGpu(cleanText, creds, voiceName, options);
       } else if (creds.backend === "custom") {
         return callCustomBackend(cleanText, creds, voiceName, model, options);
       }
@@ -616,6 +618,42 @@ function GeminiTtsEngine() {
       httpStatus: lastStatus,
       mimeType: "audio/mpeg",
       audioBytes: merged.byteLength,
+      url: URL.createObjectURL(blob)
+    };
+  }
+
+  async function callPhononWebGpu(text, creds, voiceName, options) {
+    const rate = options && options.rate;
+    let bytes;
+    let mimeType = "audio/wav";
+    if (typeof globalThis !== "undefined" && globalThis.phononBridge && typeof navigator !== "undefined" && navigator.gpu) {
+      const res = await globalThis.phononBridge.synthesize(text, voiceName, rate);
+      bytes = res.bytes;
+      mimeType = res.mimeType || mimeType;
+    } else if (typeof brapi !== "undefined" && brapi.runtime && brapi.runtime.sendMessage) {
+      if (typeof handlers !== "undefined" && typeof handlers.ensureOffscreen === "function") {
+        await handlers.ensureOffscreen();
+      } else if (typeof bgPageInvoke === "function") {
+        await bgPageInvoke("ensureOffscreen");
+      }
+      const res = await brapi.runtime.sendMessage({
+        dest: "offscreen",
+        method: "synthesizePhonon",
+        args: [text, voiceName, rate]
+      });
+      if (!res || !res.base64) {
+        throw new Error((res && res.error) || "Phonon WebGPU offscreen synthesis failed.");
+      }
+      bytes = base64ToUint8Array(res.base64);
+      mimeType = res.mimeType || mimeType;
+    } else {
+      throw new Error("Phonon WebGPU requires a browser window or offscreen document.");
+    }
+    const blob = new Blob([bytes], {type: mimeType});
+    return {
+      httpStatus: 200,
+      mimeType,
+      audioBytes: bytes.byteLength,
       url: URL.createObjectURL(blob)
     };
   }
