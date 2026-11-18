@@ -311,7 +311,15 @@
   });
 
   domReadyPromise.then(() => {
-    $("#gemini-backend").on("change", () => updateOptionsBackendUi($("#gemini-backend").val()));
+    $("#gemini-backend").on("change", () => {
+      const selected = $("#gemini-backend").val();
+      updateOptionsBackendUi(selected);
+      if (selected === "edge-tts" && brapi.permissions && typeof brapi.permissions.request === "function") {
+        try {
+          Promise.resolve(brapi.permissions.request({ origins: ["https://speech.platform.bing.com/*"] })).catch(() => {});
+        } catch (_) {}
+      }
+    });
     $("#gemini-backend, #gemini-api-key, #gemini-model, #gemini-lang, #gemini-prompt")
       .on("change", saveGeminiOptions);
 

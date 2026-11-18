@@ -302,39 +302,41 @@
       (global.chrome && global.chrome.declarativeNetRequest) ||
       (global.browser && global.browser.declarativeNetRequest);
     if (!dnr || typeof dnr.updateDynamicRules !== "function") {
-      throw new Error("declarativeNetRequest API is required for direct Edge TTS.");
+      return;
     }
-    await dnr.updateDynamicRules({
-      removeRuleIds: [DNR_RULE_ID],
-      addRules: [{
-        id: DNR_RULE_ID,
-        priority: 1,
-        action: {
-          type: "modifyHeaders",
-          requestHeaders: [
-            {
-              header: "Origin",
-              operation: "set",
-              value: "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold"
-            },
-            {
-              header: "User-Agent",
-              operation: "set",
-              value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
-            },
-            {
-              header: "Cookie",
-              operation: "set",
-              value: `muid=${muid};`
-            }
-          ]
-        },
-        condition: {
-          urlFilter: "||speech.platform.bing.com/",
-          resourceTypes: ["websocket"]
-        }
-      }]
-    });
+    try {
+      await dnr.updateDynamicRules({
+        removeRuleIds: [DNR_RULE_ID],
+        addRules: [{
+          id: DNR_RULE_ID,
+          priority: 1,
+          action: {
+            type: "modifyHeaders",
+            requestHeaders: [
+              {
+                header: "Origin",
+                operation: "set",
+                value: "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold"
+              },
+              {
+                header: "User-Agent",
+                operation: "set",
+                value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+              },
+              {
+                header: "Cookie",
+                operation: "set",
+                value: `muid=${muid};`
+              }
+            ]
+          },
+          condition: {
+            urlFilter: "||speech.platform.bing.com/",
+            resourceTypes: ["websocket"]
+          }
+        }]
+      });
+    } catch (_) {}
   }
 
   function uint8ToBase64(bytes) {
@@ -365,62 +367,79 @@
     const chunks = [];
     let totalBytes = 0;
 
-    await new Promise((resolve, reject) => {
-      const ws = new WebSocket(wsUrl);
-      ws.binaryType = "arraybuffer";
-      let settled = false;
-      const done = (err) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        if (err) reject(err);
-        else resolve();
-      };
-      const timer = setTimeout(() => {
-        try { ws.close(); } catch (_) {}
-        done(new Error("Edge TTS WebSocket timed out."));
-      }, 30000);
+    try {
+      await new Promise((resolve, reject) => {
+        const ws = new WebSocket(wsUrl);
+        ws.binaryType = "arraybuffer";
+        let settled = false;
+        const done = (err) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (err) reject(err);
+          else resolve();
+        };
+        const timer = setTimeout(() => {
+          try { ws.close(); } catch (_) {}
+          done(new Error("Edge TTS WebSocket timed out."));
+        }, 30000);
 
-      ws.onopen = () => {
-        const ts = new Date().toISOString();
-        ws.send(
-          `X-Timestamp:${ts}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n` +
-          `{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`
-        );
-        const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${xmlLang}'><voice name='${edgeVoice}'><prosody pitch='+0Hz' rate='${rate}' volume='+0%'>${escapeXml(cleanText)}</prosody></voice></speak>`;
-        ws.send(
-          `X-RequestId:${reqId}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${ts}\r\nPath:ssml\r\n\r\n${ssml}`
-        );
-      };
+        ws.onopen = () => {
+          const ts = new Date().toISOString();
+          ws.send(
+            `X-Timestamp:${ts}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n` +
+            `{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`
+          );
+          const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${xmlLang}'><voice name='${edgeVoice}'><prosody pitch='+0Hz' rate='${rate}' volume='+0%'>${escapeXml(cleanText)}</prosody></voice></speak>`;
+          ws.send(
+            `X-RequestId:${reqId}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${ts}\r\nPath:ssml\r\n\r\n${ssml}`
+          );
+        };
 
-      ws.onmessage = (ev) => {
-        if (typeof ev.data === "string") {
-          if (ev.data.includes("Path:turn.end")) {
-            try { ws.close(); } catch (_) {}
-            done();
-          }
-        } else if (ev.data instanceof ArrayBuffer) {
-          const u8 = new Uint8Array(ev.data);
-          if (u8.length >= 2) {
-            const hdrLen = (u8[0] << 8) | u8[1];
-            const audioStart = 2 + hdrLen;
-            if (audioStart < u8.length) {
-              const slice = u8.subarray(audioStart);
-              chunks.push(slice);
-              totalBytes += slice.length;
+        ws.onmessage = (ev) => {
+          if (typeof ev.data === "string") {
+            if (ev.data.includes("Path:turn.end")) {
+              try { ws.close(); } catch (_) {}
+              done();
+            }
+          } else if (ev.data instanceof ArrayBuffer) {
+            const u8 = new Uint8Array(ev.data);
+            if (u8.length >= 2) {
+              const hdrLen = (u8[0] << 8) | u8[1];
+              const audioStart = 2 + hdrLen;
+              if (audioStart < u8.length) {
+                const slice = u8.subarray(audioStart);
+                chunks.push(slice);
+                totalBytes += slice.length;
+              }
             }
           }
-        }
-      };
+        };
 
-      ws.onerror = () => done(new Error("Edge TTS WebSocket connection failed."));
-      ws.onclose = (ev) => {
-        if (!settled) {
-          if (totalBytes > 0) done();
-          else done(new Error(`Edge TTS WebSocket closed (${ev.code}${ev.reason ? ": " + ev.reason : ""})`));
+        ws.onerror = () => done(new Error("Edge TTS WebSocket connection failed."));
+        ws.onclose = (ev) => {
+          if (!settled) {
+            if (totalBytes > 0) done();
+            else done(new Error(`Edge TTS WebSocket closed (${ev.code}${ev.reason ? ": " + ev.reason : ""})`));
+          }
+        };
+      });
+    } catch (wsErr) {
+      const permsApi =
+        (global.brapi && global.brapi.permissions) ||
+        (global.chrome && global.chrome.permissions) ||
+        (global.browser && global.browser.permissions);
+      if (permsApi && typeof permsApi.contains === "function") {
+        let hasPerm = true;
+        try {
+          hasPerm = await permsApi.contains({ origins: ["https://speech.platform.bing.com/*"] });
+        } catch (_) {}
+        if (!hasPerm) {
+          throw new Error("Host permission for speech.platform.bing.com is required. Click Test & Save to grant permission, or enable 'Access your data for all websites' in Firefox Add-ons -> Permissions.");
         }
-      };
-    });
+      }
+      throw wsErr;
+    }
 
     if (totalBytes === 0) {
       throw new Error("Edge TTS returned empty audio.");

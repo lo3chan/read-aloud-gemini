@@ -930,8 +930,24 @@ function GeminiTtsEngine() {
     const lang = creds.languageCode || (options && options.lang) || "en-gb";
     const canDirect = typeof globalThis !== "undefined" && globalThis.edgeTtsBridge &&
       typeof window !== "undefined";
+    if (canDirect) {
+      try {
+        return await runOffscreenOrDirect(
+          () => globalThis.edgeTtsBridge.synthesize(text, voiceName, rate, lang),
+          "synthesizeEdgeTts",
+          [text, voiceName, rate, lang],
+          "audio/mpeg",
+          "Edge TTS"
+        );
+      } catch (directErr) {
+        if (typeof brapi === "undefined" || !brapi.runtime || !brapi.runtime.sendMessage ||
+            /Host permission/i.test((directErr && directErr.message) || "")) {
+          throw directErr;
+        }
+      }
+    }
     return runOffscreenOrDirect(
-      canDirect ? () => globalThis.edgeTtsBridge.synthesize(text, voiceName, rate, lang) : null,
+      null,
       "synthesizeEdgeTts",
       [text, voiceName, rate, lang],
       "audio/mpeg",

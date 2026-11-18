@@ -4,7 +4,7 @@
   "name": "__MSG_extension_name__",
   "short_name": "__MSG_extension_short_name__",
   "description": "__MSG_extension_description__",
-  "version": "2.25.24",
+  "version": "2.25.25",
   "default_locale": "en",
   "minimum_chrome_version": "99",
 
@@ -27,7 +27,8 @@
     "storage",
     "tts",
     "ttsEngine",
-    "webRequest"
+    "webRequest",
+    "webRequestBlocking"
   ],
   "optional_permissions": [
     "webNavigation"
@@ -70,6 +71,8 @@
       "js/content-handlers.js",
       "js/offscreen-manager.js",
       "js/reader-manager.js",
+      "js/phonon-bridge.js",
+      "js/edge-tts-bridge.js",
       "js/offscreen.js",
       "js/events.js"
     ]

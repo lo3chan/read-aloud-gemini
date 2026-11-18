@@ -8,7 +8,14 @@ $(function() {
   observeSetting("geminiTelemetry").subscribe(() => loadTelemetry());
   observeSetting("gcpToken").subscribe(token => updatePortalStatus(token));
 
-  $("#gemini-backend").change(updateBackendUi);
+  $("#gemini-backend").change(() => {
+    updateBackendUi();
+    if ($("#gemini-backend").val() === "edge-tts" && brapi.permissions && typeof brapi.permissions.request === "function") {
+      try {
+        Promise.resolve(brapi.permissions.request({ origins: ["https://speech.platform.bing.com/*"] })).catch(() => {});
+      } catch (_) {}
+    }
+  });
   $("#gemini-lang").change(() => {
     if ($("#gemini-backend").val() === "edge-tts") {
       populateTestVoices("edge-tts", $("#gemini-lang").val());
@@ -42,8 +49,22 @@ $(function() {
     $("#gemini-model").val($(this).data("model"));
   });
 
-  $("#gemini-save-btn").click(saveConfig);
-  $("#gemini-test-btn").click(testConfig);
+  $("#gemini-save-btn").click(() => {
+    if ($("#gemini-backend").val() === "edge-tts" && brapi.permissions && typeof brapi.permissions.request === "function") {
+      try {
+        Promise.resolve(brapi.permissions.request({ origins: ["https://speech.platform.bing.com/*"] })).catch(() => {});
+      } catch (_) {}
+    }
+    saveConfig();
+  });
+  $("#gemini-test-btn").click(() => {
+    if ($("#gemini-backend").val() === "edge-tts" && brapi.permissions && typeof brapi.permissions.request === "function") {
+      try {
+        Promise.resolve(brapi.permissions.request({ origins: ["https://speech.platform.bing.com/*"] })).catch(() => {});
+      } catch (_) {}
+    }
+    testConfig();
+  });
   $("#gemini-clear-cache-btn").click(function() {
     geminiTtsEngine.clearCache();
     showSuccess("In-memory audio cache cleared.");

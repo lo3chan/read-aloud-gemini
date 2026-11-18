@@ -525,3 +525,39 @@ async function sendToPlayer(message) {
   if (result && result.error) throw result.error
   else return result
 }
+
+if (brapi.webRequest && brapi.webRequest.onBeforeSendHeaders) {
+  try {
+    brapi.webRequest.onBeforeSendHeaders.addListener(
+      function(details) {
+        const headers = details.requestHeaders || [];
+        const muidBytes = new Uint8Array(16);
+        crypto.getRandomValues(muidBytes);
+        const muid = Array.from(muidBytes, b => b.toString(16).padStart(2, "0").toUpperCase()).join("");
+        const overrides = {
+          "origin": ["Origin", "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold"],
+          "user-agent": ["User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"],
+          "cookie": ["Cookie", "muid=" + muid + ";"],
+          "pragma": ["Pragma", "no-cache"],
+          "cache-control": ["Cache-Control", "no-cache"]
+        };
+        const seen = new Set();
+        for (const h of headers) {
+          const lower = h.name.toLowerCase();
+          if (overrides[lower]) {
+            h.value = overrides[lower][1];
+            seen.add(lower);
+          }
+        }
+        for (const [lower, [name, value]] of Object.entries(overrides)) {
+          if (!seen.has(lower)) {
+            headers.push({ name, value });
+          }
+        }
+        return { requestHeaders: headers };
+      },
+      { urls: ["https://speech.platform.bing.com/*", "wss://speech.platform.bing.com/*"] },
+      ["blocking", "requestHeaders"]
+    );
+  } catch (_) {}
+}
