@@ -239,98 +239,14 @@ test('portal backend retries without prompt and falls back to Standard voice on 
   assert.equal(storage.geminiTelemetry[0].voice, 'en-GB-Standard-A');
 });
 
-test('custom backend sends /v1/audio/speech with optional Bearer token, instructions, and returns audio/wav blob', async () => {
-  const requests = [];
-  const fakeWav = Uint8Array.from([0x52, 0x49, 0x46, 0x46]).buffer;
-  const {engine, storage, getCreatedBlob} = createEngineContext(
-    {
-      backend: 'custom',
-      customUrl: 'https://tts.example.com',
-      apiKey: 'test_bearer_token',
-      model: 'gemini-3.8-flash-lite-tts',
-      audioEncoding: 'LINEAR16',
-      prompt: 'Speak warmly.'
-    },
-    async (url, options) => {
-      requests.push({
-        url,
-        headers: options.headers,
-        body: JSON.parse(options.body)
-      });
-      return {
-        ok: true,
-        status: 200,
-        headers: {get: () => 'audio/wav'},
-        arrayBuffer: async () => fakeWav
-      };
-    }
-  );
-
-  const voices = await engine.getVoices();
-  const achernar = voices.find(v => v.voiceName === 'Gemini Achernar');
-  const url = await engine.speak('Hello custom backend!', {voice: achernar});
-
-  assert.equal(url, 'blob:gemini-test');
-  assert.equal(getCreatedBlob().type, 'audio/wav');
-  assert.equal(requests.length, 1);
-  assert.equal(requests[0].url, 'https://tts.example.com/v1/audio/speech');
-  assert.equal(requests[0].headers.Authorization, 'Bearer test_bearer_token');
-  assert.deepEqual(requests[0].body, {
-    model: 'gemini-3.8-flash-lite-tts',
-    input: 'Hello custom backend!',
-    voice: 'Achernar',
-    instructions: 'Speak warmly.',
-    response_format: 'wav'
-  });
-  assert.equal(storage.geminiTelemetry[0].status, 'ok');
-  assert.equal(storage.geminiTelemetry[0].backend, 'custom');
-  assert.equal(storage.geminiTelemetry[0].mimeType, 'audio/wav');
-
-  // Keyless request (e.g., local server or internal IP) omits Authorization header and defaults to mp3
-  storage.geminiCreds = {
-    backend: 'custom',
-    customUrl: 'https://local-tts.example.com/v1/audio/speech',
-    apiKey: '',
-    model: 'gemini-3.8-flash-lite-tts',
-    audioEncoding: 'MP3',
-    prompt: ''
-  };
-  await engine.speak('Keyless test!', {voice: achernar});
-  assert.equal(requests.length, 2);
-  assert.equal(requests[1].url, 'https://local-tts.example.com/v1/audio/speech');
-  assert.equal(requests[1].headers.Authorization, undefined);
-  assert.equal(requests[1].body.response_format, 'mp3');
-});
-
-test('buildCustomSpeechRequest maps encodings to response_format and defaults model to gemini-3.8-flash-lite-tts', () => {
-  const {engine} = createEngineContext({}, async () => ({}));
-  assert.equal(engine.defaultConfig.model, 'gemini-3.8-flash-lite-tts');
-
-  // Default / MP3 -> mp3
-  const reqDefault = engine.buildCustomSpeechRequest('Test text', {customUrl: 'https://tts.example.com'}, 'Achernar');
-  assert.equal(reqDefault.response_format, 'mp3');
-  assert.equal(reqDefault.model, 'gemini-3.8-flash-lite-tts');
-
-  const reqMp3 = engine.buildCustomSpeechRequest('Test text', {audioEncoding: 'MP3'}, 'Achernar');
-  assert.equal(reqMp3.response_format, 'mp3');
-
-  // OGG_OPUS -> opus
-  const reqOpus = engine.buildCustomSpeechRequest('Test text', {audioEncoding: 'OGG_OPUS'}, 'Achernar');
-  assert.equal(reqOpus.response_format, 'opus');
-
-  // LINEAR16 -> wav
-  const reqWav = engine.buildCustomSpeechRequest('Test text', {audioEncoding: 'LINEAR16'}, 'Achernar');
-  assert.equal(reqWav.response_format, 'wav');
-});
-
 test('runBackendSynthesis performs single transient retry on 429, 502, 503, or network error', async () => {
   let callCount = 0;
-  const fakeWav = Uint8Array.from([0x52, 0x49, 0x46, 0x46]).buffer;
   const {engine, storage} = createEngineContext(
     {
-      backend: 'custom',
-      customUrl: 'https://tts.example.com',
-      audioEncoding: 'LINEAR16'
+      backend: 'gemini-api',
+      apiKey: 'test-key',
+      model: 'gemini-3.8-flash-lite-tts',
+      prompt: ''
     },
     async () => {
       callCount++;
@@ -344,8 +260,18 @@ test('runBackendSynthesis performs single transient retry on 429, 502, 503, or n
       return {
         ok: true,
         status: 200,
-        headers: {get: () => 'audio/wav'},
-        arrayBuffer: async () => fakeWav
+        json: async () => ({
+          candidates: [{
+            content: {
+              parts: [{
+                inlineData: {
+                  mimeType: 'audio/L16;rate=24000',
+                  data: Buffer.from([0x10, 0x20, 0x30, 0x40]).toString('base64')
+                }
+              }]
+            }
+          }]
+        })
       };
     }
   );
@@ -356,45 +282,6 @@ test('runBackendSynthesis performs single transient retry on 429, 502, 503, or n
   assert.equal(callCount, 2);
   assert.equal(storage.geminiTelemetry[0].status, 'ok');
   assert.equal(storage.geminiTelemetry[0].httpStatus, 200);
-});
-
-test('custom backend retries without prompt on 400, 502, or 503 and logs fallback telemetry', async () => {
-  const requests = [];
-  const fakeWav = Uint8Array.from([0x52, 0x49, 0x46, 0x46]).buffer;
-  const {engine, storage} = createEngineContext(
-    {
-      backend: 'custom',
-      customUrl: 'https://tts.example.com',
-      audioEncoding: 'LINEAR16',
-      prompt: 'Special accent'
-    },
-    async (url, options) => {
-      const body = JSON.parse(options.body);
-      requests.push(body);
-      if (body.instructions) {
-        return {
-          ok: false,
-          status: 400,
-          text: async () => JSON.stringify({error: {message: 'Instructions not supported'}})
-        };
-      }
-      return {
-        ok: true,
-        status: 200,
-        headers: {get: () => 'audio/wav'},
-        arrayBuffer: async () => fakeWav
-      };
-    }
-  );
-
-  const voices = await engine.getVoices();
-  const url = await engine.speak('Test prompt fallback', {voice: voices[0]});
-  assert.equal(url, 'blob:gemini-test');
-  assert.equal(requests.length, 2);
-  assert.equal(requests[0].instructions, 'Special accent');
-  assert.equal(requests[1].instructions, undefined);
-  assert.equal(storage.geminiTelemetry[0].status, 'ok');
-  assert.ok(storage.geminiTelemetry[0].error.includes('Retried without prompt'));
 });
 
 test('portal and cloud-tts backends fall back to gemini-3.1-flash-tts-preview on 400 unsupported model', async () => {
@@ -445,7 +332,7 @@ test('portal and cloud-tts backends fall back to gemini-3.1-flash-tts-preview on
   }
 });
 
-test('strips trailing C2PA RIFF chunks from audio/wav responses in gemini-api and custom backends', async () => {
+test('strips trailing C2PA RIFF chunks from audio/wav responses in gemini-api backend', async () => {
   const pcmSamples = Buffer.from([0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88]);
   const c2paPayload = Buffer.alloc(128, 0xaa);
   const riffSize = 4 + (8 + 16) + (8 + pcmSamples.length) + (8 + c2paPayload.length);
@@ -485,25 +372,6 @@ test('strips trailing C2PA RIFF chunks from audio/wav responses in gemini-api an
     );
     const voices = await engine.getVoices();
     await engine.speak('Strip C2PA test', {voice: voices[0]});
-    const out = Buffer.from(getCreatedBlob().parts[0]);
-    assert.equal(getCreatedBlob().type, 'audio/wav');
-    assert.equal(out.length, 44 + pcmSamples.length);
-    assert.deepEqual(out.subarray(44), pcmSamples);
-  }
-
-  // 2. custom backend returning audio/wav with C2PA
-  {
-    const {engine, getCreatedBlob} = createEngineContext(
-      {backend: 'custom', customUrl: 'https://tts.example.com', audioEncoding: 'LINEAR16'},
-      async () => ({
-        ok: true,
-        status: 200,
-        headers: {get: () => 'audio/wav'},
-        arrayBuffer: async () => wavWithC2pa.buffer.slice(wavWithC2pa.byteOffset, wavWithC2pa.byteOffset + wavWithC2pa.byteLength)
-      })
-    );
-    const voices = await engine.getVoices();
-    await engine.speak('Strip C2PA custom test', {voice: voices[0]});
     const out = Buffer.from(getCreatedBlob().parts[0]);
     assert.equal(getCreatedBlob().type, 'audio/wav');
     assert.equal(out.length, 44 + pcmSamples.length);
@@ -590,4 +458,66 @@ test('phonon-webgpu backend routes to offscreen synthesizePhonon when navigator.
   assert.equal(getCreatedBlob().type, 'audio/wav');
   assert.equal(storage.geminiTelemetry[0].status, 'ok');
   assert.equal(storage.geminiTelemetry[0].backend, 'phonon-webgpu');
+});
+
+test('edgeTtsBridge.generateSecMsGecV2 matches reference v2 token format', () => {
+  const edgeBridgeSource = readFileSync(require.resolve('../js/edge-tts-bridge.js'), 'utf8');
+  const ctx = vm.createContext({
+    crypto: require('node:crypto').webcrypto,
+    btoa: str => Buffer.from(str, 'binary').toString('base64')
+  });
+  ctx.globalThis = ctx;
+  vm.runInContext(edgeBridgeSource, ctx);
+
+  assert.equal(
+    ctx.edgeTtsBridge.generateSecMsGecV2(1794722000),
+    '7ABC81844F44D581-142F05E3BB83A929060B0DD200224F45A83D9F12D80866842DC163270DC896F2'
+  );
+  assert.equal(ctx.edgeTtsBridge.mapEdgeVoice('Achernar', 'en-gb'), 'en-GB-SoniaNeural');
+  assert.equal(ctx.edgeTtsBridge.mapEdgeVoice('Charon', 'en-gb'), 'en-GB-RyanNeural');
+  assert.equal(ctx.edgeTtsBridge.mapEdgeVoice('en-US-AriaNeural', 'en-gb'), 'en-US-AriaNeural');
+});
+
+test('edge-tts backend routes to offscreen synthesizeEdgeTts when window is absent', async () => {
+  let offscreenEnsured = false;
+  const sentMessages = [];
+  const {engine, storage, context, getCreatedBlob} = createEngineContext(
+    {
+      backend: 'edge-tts',
+      languageCode: 'en-gb',
+      apiKey: ''
+    },
+    async () => {
+      throw new Error('fetch should not be called for edge-tts');
+    }
+  );
+
+  context.handlers = {
+    ensureOffscreen: async () => {
+      offscreenEnsured = true;
+    }
+  };
+  context.brapi = {
+    runtime: {
+      sendMessage: async (msg) => {
+        sentMessages.push(msg);
+        return {
+          base64: Buffer.from('ID3fakeMP3').toString('base64'),
+          mimeType: 'audio/mpeg'
+        };
+      }
+    }
+  };
+
+  const result = await engine.test(storage.geminiCreds, 'Hello direct Edge TTS.', 'Achernar');
+  assert.equal(offscreenEnsured, true);
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0].dest, 'offscreen');
+  assert.equal(sentMessages[0].method, 'synthesizeEdgeTts');
+  assert.equal(sentMessages[0].args[0], 'Hello direct Edge TTS.');
+  assert.equal(sentMessages[0].args[1], 'Achernar');
+  assert.equal(result.mimeType, 'audio/mpeg');
+  assert.equal(getCreatedBlob().type, 'audio/mpeg');
+  assert.equal(storage.geminiTelemetry[0].status, 'ok');
+  assert.equal(storage.geminiTelemetry[0].backend, 'edge-tts');
 });

@@ -25,6 +25,7 @@
   <script src="js/jquery-3.7.1.min.js"></script>
   <script src="js/defaults.js"></script>
   <script src="js/phonon-bridge.js"></script>
+  <script src="js/edge-tts-bridge.js"></script>
   <script src="js/tts-engines.js"></script>
   <script src="js/custom-voices.js"></script>
 </head>
@@ -50,14 +51,14 @@
                 <option value="portal">Google Cloud Portal (Free Demo Proxy, no API key)</option>
                 <option value="google-translate">Google Translate (Free, no API key)</option>
                 <option value="phonon-webgpu">Local WebGPU — Phonon 31M (English, no API key)</option>
+                <option value="edge-tts">Edge Neural TTS (Free, no API key)</option>
                 <option value="cloud-tts">Google Cloud TTS API Key (v1beta1)</option>
-                <option value="custom">OpenAI-Compatible TTS Endpoint</option>
               </select>
             </div>
             <div class="form-group col-md-8" id="api-key-group">
               <label for="gemini-api-key">API Key <small class="text-muted" id="api-key-hint"></small></label>
               <div class="input-group">
-                <input type="password" class="form-control mono" id="gemini-api-key" placeholder="AIza... or Bearer token (optional)" />
+                <input type="password" class="form-control mono" id="gemini-api-key" placeholder="AIza..." />
                 <div class="input-group-append">
                   <button type="button" class="btn btn-outline-secondary" id="toggle-key-btn">Show</button>
                 </div>
@@ -72,13 +73,6 @@
             </div>
           </div>
 
-          <div class="form-row" id="custom-url-group" style="display: none;">
-            <div class="form-group col-md-12">
-              <label for="gemini-custom-url">OpenAI-Compatible Endpoint URL (base URL or full <code>/v1/audio/speech</code> path)</label>
-              <input type="url" class="form-control mono" id="gemini-custom-url" placeholder="https://api.example.com/v1/audio/speech" />
-            </div>
-          </div>
-
           <div class="form-row">
             <div class="form-group col-md-5">
               <label for="gemini-model">Model Name</label>
@@ -90,7 +84,6 @@
                 <button type="button" class="btn btn-sm btn-outline-secondary preset-btn model-preset" data-model="gemini-3.1-flash-tts-preview">3.1-flash-tts-preview</button>
                 <button type="button" class="btn btn-sm btn-outline-secondary preset-btn model-preset" data-model="gemini-2.5-flash-preview-tts">2.5-flash-preview-tts</button>
                 <button type="button" class="btn btn-sm btn-outline-secondary preset-btn model-preset" data-model="gemini-2.5-pro-preview-tts">2.5-pro-preview-tts</button>
-                <button type="button" class="btn btn-sm btn-outline-secondary preset-btn model-preset" data-model="edge-tts">edge-tts</button>
               </div>
             </div>
             <div class="form-group col-md-2">

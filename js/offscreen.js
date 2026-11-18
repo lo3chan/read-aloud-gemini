@@ -56,8 +56,19 @@
     };
   }
 
+  async function synthesizeEdgeTts(text, voiceName, speed, languageCode) {
+    if (!globalThis.edgeTtsBridge) {
+      throw new Error("Edge TTS bridge is not loaded in offscreen document.");
+    }
+    const result = await globalThis.edgeTtsBridge.synthesize(text, voiceName, speed, languageCode);
+    return {
+      base64: globalThis.edgeTtsBridge.uint8ToBase64(result.bytes),
+      mimeType: result.mimeType || "audio/mpeg"
+    };
+  }
+
   // Register only after state and the audio subscription are initialized.
-  registerMessageListener("offscreen", {ping: () => true, play, pause, stop, synthesizePhonon})
+  registerMessageListener("offscreen", {ping: () => true, play, pause, stop, synthesizePhonon, synthesizeEdgeTts})
 
   async function sendToPlayer(message) {
     message.dest = "player"

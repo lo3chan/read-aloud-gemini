@@ -204,7 +204,6 @@
     const existing = (await getSetting("geminiCreds")) || {};
     const next = Object.assign({}, geminiTtsEngine.defaultConfig, existing, {
       backend: $("#gemini-backend").val(),
-      customUrl: $("#gemini-custom-url").val().trim(),
       apiKey: $("#gemini-api-key").val().trim(),
       model: $("#gemini-model").val().trim() || geminiTtsEngine.defaultConfig.model,
       languageCode: $("#gemini-lang").val().trim() || "en-gb",
@@ -303,7 +302,6 @@
     const cfg = Object.assign({}, defaults, rawCreds || {});
     const backend = cfg.backend || defaults.backend;
     $("#gemini-backend").val(backend);
-    $("#gemini-custom-url").val(cfg.customUrl || "");
     $("#gemini-api-key").val(cfg.apiKey || "");
     const modelVal = cfg.model || defaults.model;
     if ($(`#gemini-model option[value="${modelVal}"]`).length === 0) {
@@ -318,16 +316,14 @@
     $("#gemini-lang").val(langVal);
     $("#gemini-prompt").val(cfg.prompt != null ? cfg.prompt : defaults.prompt);
     const isPortal = backend === "portal";
-    const isCustom = backend === "custom";
-    const isKeyless = backend === "google-translate" || backend === "phonon-webgpu";
-    $("#gemini-custom-url-label, #gemini-custom-url-control").toggle(isCustom);
+    const isKeyless = backend === "google-translate" || backend === "phonon-webgpu" || backend === "edge-tts";
     $("#gemini-key-label, #gemini-key-control").toggle(!isPortal && !isKeyless);
     $("#portal-auth-label, #portal-auth-control").toggle(isPortal);
     $("#portal-token-status").text(gcpToken ? "Authorized" : "Not authorized");
   });
 
   domReadyPromise.then(() => {
-    $("#gemini-backend, #gemini-custom-url, #gemini-api-key, #gemini-model, #gemini-lang, #gemini-prompt")
+    $("#gemini-backend, #gemini-api-key, #gemini-model, #gemini-lang, #gemini-prompt")
       .on("change", saveGeminiOptions);
 
     $("#portal-auth-btn").click(() => {

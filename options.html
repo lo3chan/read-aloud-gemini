@@ -12,6 +12,7 @@
   <script src="js/defaults.js"></script>
   <script src="js/messaging.js"></script>
   <script src="js/phonon-bridge.js"></script>
+  <script src="js/edge-tts-bridge.js"></script>
   <script src="js/tts-engines.js"></script>
   <script src="js/options.js"></script>
 </head>
@@ -84,22 +85,15 @@
         <option value="portal">Google Cloud Portal (No API Key)</option>
         <option value="google-translate">Google Translate (Free, No Key)</option>
         <option value="phonon-webgpu">Local WebGPU — Phonon 31M (English, No Key)</option>
+        <option value="edge-tts">Edge Neural TTS (Free, No Key)</option>
         <option value="cloud-tts">Google Cloud TTS API Key</option>
-        <option value="custom">OpenAI-Compatible TTS Endpoint</option>
       </select>
-
-      <div id="gemini-custom-url-label" style="display: none;">
-        <span>Backend URL</span>
-      </div>
-      <div id="gemini-custom-url-control" style="display: none;">
-        <input id="gemini-custom-url" type="url" class="form-control" placeholder="https://api.example.com/v1/audio/speech" />
-      </div>
 
       <div id="gemini-key-label">
         <span>API Key</span>
       </div>
       <div id="gemini-key-control">
-        <input id="gemini-api-key" type="password" class="form-control" placeholder="AIza... or Bearer token (optional)" />
+        <input id="gemini-api-key" type="password" class="form-control" placeholder="AIza..." />
       </div>
 
       <div id="portal-auth-label" style="display: none;">
@@ -120,7 +114,6 @@
         <option value="gemini-3.1-flash-tts-preview">Gemini 3.1 Flash TTS (preview)</option>
         <option value="gemini-2.5-flash-preview-tts">Gemini 2.5 Flash TTS (preview)</option>
         <option value="gemini-2.5-pro-preview-tts">Gemini 2.5 Pro TTS (preview)</option>
-        <option value="edge-tts">Edge Neural TTS (Custom Endpoint)</option>
       </select>
 
       <div>

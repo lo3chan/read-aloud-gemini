@@ -202,29 +202,6 @@ def run_e2e():
             assert len(portal_requests) == 1
             assert "token=portal-test-token" in portal_requests[0]["url"]
 
-            # Test custom backend with compact MP3 synthesis
-            custom_requests = []
-            def handle_custom_tts(route):
-                body = json.loads(route.request.post_data or "{}")
-                custom_requests.append({"url": route.request.url, "body": body})
-                mp3_bytes = b"ID3\x03\x00\x00\x00\x00\x00\x00" + b"\xff\xfb\x90\x44" * 10
-                route.fulfill(
-                    status=200,
-                    content_type="audio/mpeg",
-                    body=mp3_bytes,
-                )
-            context.route("https://mock-custom-tts.example.com/**", handle_custom_tts)
-
-            page.locator("#gemini-backend").select_option("custom")
-            page.locator("#gemini-custom-url").fill("https://mock-custom-tts.example.com/v1/audio/speech")
-            page.locator("#gemini-save-btn").click()
-            page.wait_for_timeout(200)
-            page.locator("#gemini-test-btn").click()
-            page.wait_for_timeout(400)
-            assert len(custom_requests) == 1
-            assert custom_requests[0]["body"]["response_format"] == "mp3"
-            assert custom_requests[0]["body"]["model"] == "gemini-3.8-flash-lite-tts"
-
             # Test fast-start first chunking in Speech via player.html
             player_page = context.new_page()
             player_page.goto(f"chrome-extension://{ext_id}/player.html", wait_until="domcontentloaded")
@@ -248,7 +225,7 @@ def run_e2e():
             page.wait_for_selector("#gemini-error:visible", timeout=5000)
             assert "429: Quota exceeded" in page.locator("#gemini-error").inner_text()
             page.wait_for_timeout(300)
-            assert page.locator("#stat-total").inner_text() == "5"
+            assert page.locator("#stat-total").inner_text() == "4"
             page.locator("#telemetry-clear-btn").click()
             page.wait_for_timeout(200)
             assert page.locator("#stat-total").inner_text() == "0"

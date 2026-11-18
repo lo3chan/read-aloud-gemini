@@ -65,7 +65,6 @@ function applyConfigToForm(raw) {
   const defaults = geminiTtsEngine.defaultConfig;
   const cfg = Object.assign({}, defaults, raw || {});
   $("#gemini-backend").val(cfg.backend || defaults.backend);
-  $("#gemini-custom-url").val(cfg.customUrl || "");
   $("#gemini-api-key").val(cfg.apiKey || "");
   $("#gemini-model").val(cfg.model || defaults.model);
   $("#gemini-lang").val(cfg.languageCode || defaults.languageCode);
@@ -81,8 +80,8 @@ function applyConfigToForm(raw) {
     badge.removeClass("badge-secondary").addClass("badge-primary").text("Google Translate");
   } else if (cfg.backend === "phonon-webgpu") {
     badge.removeClass("badge-secondary").addClass("badge-primary").text("Phonon 31M (WebGPU)");
-  } else if (cfg.backend === "custom" && cfg.customUrl) {
-    badge.removeClass("badge-secondary").addClass("badge-primary").text("OpenAI-Compatible TTS");
+  } else if (cfg.backend === "edge-tts") {
+    badge.removeClass("badge-secondary").addClass("badge-primary").text("Edge Neural TTS");
   } else if (cfg.apiKey) {
     badge.removeClass("badge-secondary").addClass("badge-primary")
       .text(cfg.backend === "cloud-tts" ? "Cloud TTS v1beta1" : "Gemini API");
@@ -94,12 +93,10 @@ function applyConfigToForm(raw) {
 function updateBackendUi() {
   const backend = $("#gemini-backend").val();
   const isPortal = backend === "portal";
-  const isCustom = backend === "custom";
-  const isKeyless = backend === "google-translate" || backend === "phonon-webgpu";
+  const isKeyless = backend === "google-translate" || backend === "phonon-webgpu" || backend === "edge-tts";
   $("#api-key-group").toggle(!isPortal && !isKeyless);
   $("#portal-auth-group").toggle(isPortal);
-  $("#custom-url-group").toggle(isCustom);
-  $("#api-key-hint").text(isCustom ? "(Optional Bearer token for authenticated endpoints)" : "");
+  $("#api-key-hint").text("");
 }
 
 function updatePortalStatus(token) {
@@ -121,7 +118,6 @@ async function loadConfig() {
 function readFormConfig() {
   return {
     backend: $("#gemini-backend").val(),
-    customUrl: $("#gemini-custom-url").val().trim(),
     apiKey: $("#gemini-api-key").val().trim(),
     model: $("#gemini-model").val().trim() || geminiTtsEngine.defaultConfig.model,
     languageCode: $("#gemini-lang").val().trim() || "en-gb",
@@ -135,12 +131,7 @@ async function saveConfig() {
   $(".status").hide();
   try {
     const geminiCreds = readFormConfig();
-    if (geminiCreds.backend === "custom") {
-      if (!geminiCreds.customUrl) {
-        showError("Custom Backend URL is required.");
-        return;
-      }
-    } else if (geminiCreds.backend !== "portal" && geminiCreds.backend !== "google-translate" && geminiCreds.backend !== "phonon-webgpu" && !geminiCreds.apiKey) {
+    if (geminiCreds.backend !== "portal" && geminiCreds.backend !== "google-translate" && geminiCreds.backend !== "phonon-webgpu" && geminiCreds.backend !== "edge-tts" && !geminiCreds.apiKey) {
       await clearSettings(["geminiCreds"]);
       applyConfigToForm(null);
       showSuccess("Gemini TTS disabled (API key cleared).");

@@ -55,7 +55,6 @@ const GEMINI_PREBUILT_VOICES = [
 
 const GEMINI_DEFAULT_CONFIG = {
   backend: "gemini-api",
-  customUrl: "",
   apiKey: "",
   model: "gemini-3.8-flash-lite-tts",
   languageCode: "en-gb",
@@ -94,11 +93,7 @@ function GeminiTtsEngine() {
 
   this.test = async function(rawCreds, sampleText, voiceName) {
     const creds = normalizeCreds(rawCreds);
-    if (creds.backend === "custom") {
-      if (!creds.customUrl) {
-        throw new Error("Backend URL is required for the custom backend.");
-      }
-    } else if (creds.backend !== "portal" && creds.backend !== "google-translate" && creds.backend !== "phonon-webgpu" && !creds.apiKey) {
+    if (creds.backend !== "portal" && creds.backend !== "google-translate" && creds.backend !== "phonon-webgpu" && creds.backend !== "edge-tts" && !creds.apiKey) {
       throw new Error("API key is required for this backend.");
     }
     const voice = voiceName || "Achernar";
@@ -123,7 +118,6 @@ function GeminiTtsEngine() {
   this.parsePcmSampleRate = parsePcmSampleRate;
   this.buildCloudTtsRequest = buildCloudTtsRequest;
   this.buildGeminiApiRequest = buildGeminiApiRequest;
-  this.buildCustomSpeechRequest = buildCustomSpeechRequest;
 
   async function getNormalizedCreds() {
     const {geminiCreds} = await getSettings(["geminiCreds"]);
@@ -132,7 +126,7 @@ function GeminiTtsEngine() {
 
   function normalizeCreds(raw) {
     const src = raw || {};
-    const backend = (src.backend === "cloud-tts" || src.backend === "portal" || src.backend === "google-translate" || src.backend === "phonon-webgpu" || src.backend === "custom")
+    const backend = (src.backend === "cloud-tts" || src.backend === "portal" || src.backend === "google-translate" || src.backend === "phonon-webgpu" || src.backend === "edge-tts")
       ? src.backend
       : "gemini-api";
     const prompt = src.prompt != null
@@ -140,7 +134,6 @@ function GeminiTtsEngine() {
       : (src.defaultPrompt != null ? String(src.defaultPrompt) : GEMINI_DEFAULT_CONFIG.prompt);
     return {
       backend,
-      customUrl: (src.customUrl || "").trim().replace(/\/+$/, ""),
       apiKey: (src.apiKey || "").trim(),
       model: (src.model || GEMINI_DEFAULT_CONFIG.model).trim(),
       languageCode: (src.languageCode || GEMINI_DEFAULT_CONFIG.languageCode).trim(),
@@ -202,11 +195,7 @@ function GeminiTtsEngine() {
   function getAudioUrl(text, options) {
     assert(text && options && options.voice);
     return getNormalizedCreds().then(creds => {
-      if (creds.backend === "custom") {
-        if (!creds.customUrl) {
-          throw new Error(JSON.stringify({code: "error_gemini_not_configured"}));
-        }
-      } else if (creds.backend !== "portal" && creds.backend !== "google-translate" && creds.backend !== "phonon-webgpu" && !creds.apiKey) {
+      if (creds.backend !== "portal" && creds.backend !== "google-translate" && creds.backend !== "phonon-webgpu" && creds.backend !== "edge-tts" && !creds.apiKey) {
         throw new Error(JSON.stringify({code: "error_gemini_not_configured"}));
       }
       const voiceName = resolveVoiceName(options.voice);
@@ -214,7 +203,6 @@ function GeminiTtsEngine() {
         "v2",
         text,
         creds.backend,
-        creds.customUrl,
         creds.model,
         voiceName,
         creds.languageCode,
@@ -255,11 +243,7 @@ function GeminiTtsEngine() {
   }
 
   function canRetryWithoutPrompt(err, creds) {
-    if (isSafetyFilterError(err)) return true;
-    if (creds && creds.backend === "custom" && err && (err.httpStatus === 400 || err.httpStatus === 502 || err.httpStatus === 503)) {
-      return true;
-    }
-    return false;
+    return isSafetyFilterError(err);
   }
 
   function pickFallbackCloudVoice(languageCode) {
@@ -291,8 +275,8 @@ function GeminiTtsEngine() {
         return callGoogleTranslateTts(cleanText, creds, options);
       } else if (creds.backend === "phonon-webgpu") {
         return callPhononWebGpu(cleanText, creds, voiceName, options);
-      } else if (creds.backend === "custom") {
-        return callCustomBackend(cleanText, creds, voiceName, model, options);
+      } else if (creds.backend === "edge-tts") {
+        return callEdgeTts(cleanText, creds, voiceName, options);
       }
       return callGeminiApi(cleanText, creds, voiceName, model, options);
     }
@@ -357,9 +341,7 @@ function GeminiTtsEngine() {
                 activeModel,
                 {...options, pitch: 1}
               );
-              fallbackNote = activeCreds.backend === "custom"
-                ? `Retried without prompt after custom backend HTTP ${firstErr.httpStatus || 400} error`
-                : "Retried without prompt after Vertex AI 400 filter";
+              fallbackNote = "Retried without prompt after Vertex AI 400 filter";
             } catch (noPromptErr) {
               if (!canRetryWithoutPrompt(noPromptErr, activeCreds)) throw noPromptErr;
             }
@@ -385,9 +367,7 @@ function GeminiTtsEngine() {
 
           if (!result) {
             result = createSilentWavResult();
-            fallbackNote = activeCreds.backend === "custom"
-              ? "Skipped chunk after custom backend error"
-              : "Skipped chunk after Vertex AI 400 filter";
+            fallbackNote = "Skipped chunk after Vertex AI 400 filter";
           }
         }
       }
@@ -622,12 +602,11 @@ function GeminiTtsEngine() {
     };
   }
 
-  async function callPhononWebGpu(text, creds, voiceName, options) {
-    const rate = options && options.rate;
+  async function runOffscreenOrDirect(directFn, offscreenMethod, offscreenArgs, defaultMimeType, label) {
     let bytes;
-    let mimeType = "audio/wav";
-    if (typeof globalThis !== "undefined" && globalThis.phononBridge && typeof navigator !== "undefined" && navigator.gpu) {
-      const res = await globalThis.phononBridge.synthesize(text, voiceName, rate);
+    let mimeType = defaultMimeType;
+    if (directFn) {
+      const res = await directFn();
       bytes = res.bytes;
       mimeType = res.mimeType || mimeType;
     } else if (typeof brapi !== "undefined" && brapi.runtime && brapi.runtime.sendMessage) {
@@ -638,16 +617,16 @@ function GeminiTtsEngine() {
       }
       const res = await brapi.runtime.sendMessage({
         dest: "offscreen",
-        method: "synthesizePhonon",
-        args: [text, voiceName, rate]
+        method: offscreenMethod,
+        args: offscreenArgs
       });
       if (!res || !res.base64) {
-        throw new Error((res && res.error) || "Phonon WebGPU offscreen synthesis failed.");
+        throw new Error((res && res.error) || `${label} offscreen synthesis failed.`);
       }
       bytes = base64ToUint8Array(res.base64);
       mimeType = res.mimeType || mimeType;
     } else {
-      throw new Error("Phonon WebGPU requires a browser window or offscreen document.");
+      throw new Error(`${label} requires a browser window or offscreen document.`);
     }
     const blob = new Blob([bytes], {type: mimeType});
     return {
@@ -658,83 +637,31 @@ function GeminiTtsEngine() {
     };
   }
 
-  function resolveCustomSpeechUrl(rawUrl) {
-    const clean = String(rawUrl || "").trim().replace(/\/+$/, "");
-    if (!clean) return "";
-    if (/\/audio\/speech$/i.test(clean)) return clean;
-    if (/\/v1$/i.test(clean)) return clean + "/audio/speech";
-    return clean + "/v1/audio/speech";
+  async function callPhononWebGpu(text, creds, voiceName, options) {
+    const rate = options && options.rate;
+    const canDirect = typeof globalThis !== "undefined" && globalThis.phononBridge &&
+      typeof navigator !== "undefined" && navigator.gpu;
+    return runOffscreenOrDirect(
+      canDirect ? () => globalThis.phononBridge.synthesize(text, voiceName, rate) : null,
+      "synthesizePhonon",
+      [text, voiceName, rate],
+      "audio/wav",
+      "Phonon WebGPU"
+    );
   }
 
-  function buildCustomSpeechRequest(text, creds, voiceName, model) {
-    let format = "mp3";
-    const enc = (creds && creds.audioEncoding) ? String(creds.audioEncoding).toUpperCase() : "";
-    if (enc === "LINEAR16") {
-      format = "wav";
-    } else if (enc === "OGG_OPUS") {
-      format = "opus";
-    }
-    const body = {
-      model: model || (creds && creds.model) || GEMINI_DEFAULT_CONFIG.model || "tts",
-      input: text,
-      voice: voiceName || "Achernar",
-      response_format: format
-    };
-    const prompt = ((creds && creds.prompt) || "").trim();
-    if (prompt) {
-      body.instructions = prompt;
-    }
-    return body;
-  }
-
-  async function callCustomBackend(text, creds, voiceName, model) {
-    const url = resolveCustomSpeechUrl(creds.customUrl);
-    if (!url) {
-      throw new Error("Custom backend URL is required.");
-    }
-    const headers = {"Content-Type": "application/json"};
-    if (creds.apiKey) {
-      headers["Authorization"] = "Bearer " + creds.apiKey;
-    }
-    const body = buildCustomSpeechRequest(text, creds, voiceName, model);
-    const res = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body)
-    });
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      let msg = errText || `HTTP ${res.status}`;
-      try {
-        const parsed = JSON.parse(errText);
-        if (parsed && parsed.error) {
-          msg = parsed.error.message || JSON.stringify(parsed.error);
-        }
-      } catch (_) {}
-      const err = new Error(`Custom backend error (${msg})`);
-      err.httpStatus = res.status;
-      throw err;
-    }
-    const buf = await res.arrayBuffer();
-    if (!buf || !buf.byteLength) {
-      const err = new Error("Custom backend returned empty audio");
-      err.httpStatus = res.status;
-      throw err;
-    }
-    const mimeType = (res.headers.get("content-type") || "audio/wav").split(";")[0].trim();
-    let finalBytes = new Uint8Array(buf);
-    let outMime = mimeType;
-    if ((/wav/i.test(mimeType) || hasRiffHeader(finalBytes)) && hasRiffHeader(finalBytes)) {
-      finalBytes = sanitizeWavBytes(finalBytes);
-      outMime = "audio/wav";
-    }
-    const blob = new Blob([finalBytes], {type: outMime});
-    return {
-      httpStatus: res.status,
-      mimeType: outMime,
-      audioBytes: finalBytes.byteLength,
-      url: URL.createObjectURL(blob)
-    };
+  async function callEdgeTts(text, creds, voiceName, options) {
+    const rate = options && options.rate;
+    const lang = creds.languageCode || (options && options.lang) || "en-gb";
+    const canDirect = typeof globalThis !== "undefined" && globalThis.edgeTtsBridge &&
+      typeof window !== "undefined";
+    return runOffscreenOrDirect(
+      canDirect ? () => globalThis.edgeTtsBridge.synthesize(text, voiceName, rate, lang) : null,
+      "synthesizeEdgeTts",
+      [text, voiceName, rate, lang],
+      "audio/mpeg",
+      "Edge TTS"
+    );
   }
 
   function recordTelemetry(entry) {
